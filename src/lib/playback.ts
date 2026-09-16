@@ -5,7 +5,7 @@ import {
   looksLikeNonAudioBytes,
   maybeGunzipAudio,
 } from "@/lib/audioBytes"
-import { cdnFetchStrategies, isNetEaseCdnUrl } from "@/lib/cdnHeaders"
+import { cdnFetchStrategies } from "@/lib/cdnHeaders"
 import { httpFetch } from "@/lib/http"
 import { getCachedAudioUrl, listCachedAudioQualities, putCachedAudio } from "@/lib/mediaCache"
 import { QUALITY_LADDER } from "@/lib/quality"
@@ -14,8 +14,6 @@ import type { MusicInfo, Quality } from "@/types/music"
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
-/** Cap how long a cache download may block playback before falling back to stream. */
-const CACHE_DOWNLOAD_MS = 12_000
 /** Background warm may take longer (large FLAC / slow CDN) so the next play hits disk. */
 const CACHE_WARM_MS = 120_000
 

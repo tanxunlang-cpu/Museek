@@ -70,8 +70,8 @@ export function getBuiltinSourceScripts(): SourceScript[] {
   scripts.sort((a, b) => {
     if (a.enabled && !b.enabled) return -1;
     if (!a.enabled && b.enabled) return 1;
-    const rankA = getRank(a.name, a.url);
-    const rankB = getRank(b.name, b.url);
+    const rankA = getRank(a.name, a.url ?? "");
+    const rankB = getRank(b.name, b.url ?? "");
     if (rankA !== rankB) return rankA - rankB;
     return a.name.localeCompare(b.name, "zh-CN");
   });
