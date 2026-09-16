@@ -26,6 +26,7 @@ lofty = "0.25"
 base64 = "0.22"
 tauri-plugin-process = "2"
 tokio = { version = "1", default-features = false, features = ["time"] }
+url = "2"
 
 # Windows taskbar thumbnail toolbar (hover-over-taskbar media buttons). Reuses the
 # same `windows` crate version Tauri already pulls in, just with extra features.
@@ -78,5 +79,4 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2.3.2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
-url = "2"
 

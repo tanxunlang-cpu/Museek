@@ -645,6 +645,7 @@ fn restore_main_if_obscured(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn configure_lyrics_interaction(
     window: &tauri::WebviewWindow,
     interactive: bool,
@@ -662,6 +663,7 @@ fn configure_lyrics_interaction(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn show_lyrics_window(app: tauri::AppHandle, interactive: bool) -> Result<(), String> {
     let window = app
@@ -677,12 +679,25 @@ fn show_lyrics_window(app: tauri::AppHandle, interactive: bool) -> Result<(), St
     Ok(())
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+fn show_lyrics_window(_app: tauri::AppHandle, _interactive: bool) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn set_lyrics_interaction(app: tauri::AppHandle, interactive: bool) -> Result<(), String> {
     let window = app
         .get_webview_window("lyrics")
         .ok_or_else(|| "lyrics window missing".to_string())?;
     configure_lyrics_interaction(&window, interactive, false)
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+fn set_lyrics_interaction(_app: tauri::AppHandle, _interactive: bool) -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
