@@ -179,9 +179,13 @@ export const useSourceStore = create<SourceState>((set, get) => ({
       scripts = builtinScripts;
       saveSourceScripts(scripts);
     } else {
-      const existingUrlsOrIds = new Set(scripts.map((s) => s.url || s.id));
+      const existingUrlsOrIds = new Set(
+        scripts.map((s) => s.url || s.id).filter(Boolean) as string[],
+      );
       const missingBuiltins = builtinScripts.filter(
-        (b) => !existingUrlsOrIds.has(b.url) && !existingUrlsOrIds.has(b.id),
+        (b) =>
+          (!b.url || !existingUrlsOrIds.has(b.url)) &&
+          !existingUrlsOrIds.has(b.id),
       );
       if (missingBuiltins.length > 0) {
         scripts = [
