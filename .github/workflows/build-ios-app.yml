@@ -62,87 +62,46 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Archive iOS Application
-        env:
-          CONFIGURATION: release
+      - name: Build iOS Application
         run: |
-          set -e
-          XCODEPROJ=$(find src-tauri/gen/apple -maxdepth 1 -name "*.xcodeproj" | head -n 1)
-          echo "Found Xcode project: $XCODEPROJ"
-
-          # Fallback server-addr file in case any phase checks it
-          echo "http://localhost:1425" > "${TMPDIR}com.museek.app-server-addr" 2>/dev/null || true
-          echo "http://localhost:1425" > /tmp/com.museek.app-server-addr 2>/dev/null || true
-
-          # Print available schemes and SDKs
-          xcodebuild -list -project "$XCODEPROJ"
-          xcodebuild -showsdks
-
-          SCHEME=$(xcodebuild -list -project "$XCODEPROJ" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | grep -i "ios" | head -n 1 | tr -d '[:space:]')
-          if [ -z "$SCHEME" ]; then
-            SCHEME=$(xcodebuild -list -project "$XCODEPROJ" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | head -n 1 | tr -d '[:space:]')
-          fi
-          echo "Selected Scheme: $SCHEME"
-
-          mkdir -p src-tauri/gen/apple/build
-
-          echo "Running xcodebuild archive with release configuration..."
-          xcodebuild archive \
-            -project "$XCODEPROJ" \
-            -scheme "$SCHEME" \
-            -destination "generic/platform=iOS" \
-            -archivePath "$PWD/src-tauri/gen/apple/build/Museek.xcarchive" \
-            -configuration release \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            DEVELOPMENT_TEAM="" || true
-
-          if [ ! -d "src-tauri/gen/apple/build/Museek.xcarchive" ]; then
-            echo "Archive folder not found, attempting direct release build..."
-            xcodebuild build \
-              -project "$XCODEPROJ" \
-              -scheme "$SCHEME" \
-              -destination "generic/platform=iOS" \
-              -configuration release \
-              -derivedDataPath "$PWD/src-tauri/gen/apple/build/DerivedData" \
-              CODE_SIGN_STYLE=Manual \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGNING_ALLOWED=NO \
-              PROVISIONING_PROFILE_SPECIFIER="" \
-              DEVELOPMENT_TEAM=""
-          fi
+          CI=true pnpm tauri ios build --export-method debugging -- -- CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO || true
 
       - name: Package iOS IPA & App Bundles
         run: |
           set -e
           mkdir -p output-ios
-          APP_PATH=$(find src-tauri/gen/apple/build -type d -name "*.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: No .app bundle found in build folder!"
-            find src-tauri/gen/apple -type d -name "*.app"
-            exit 1
+
+          # Search for existing IPA or .app bundle
+          IPA_FOUND=$(find src-tauri/gen/apple "$HOME/Library/Developer/Xcode/DerivedData" -type f -name "*.ipa" 2>/dev/null | head -n 1)
+          if [ -n "$IPA_FOUND" ]; then
+            echo "Found existing IPA at: $IPA_FOUND"
+            cp "$IPA_FOUND" output-ios/Museek-3.8.0.ipa
+          else
+            APP_PATH=$(find src-tauri/gen/apple "$HOME/Library/Developer/Xcode/DerivedData" -type d -name "*.app" 2>/dev/null | head -n 1)
+            if [ -z "$APP_PATH" ]; then
+              echo "ERROR: No .app bundle found!"
+              echo "Listing contents of src-tauri/gen/apple:"
+              find src-tauri/gen/apple -maxdepth 4 || true
+              exit 1
+            fi
+            echo "Found app bundle at: $APP_PATH"
+
+            # Ad-hoc codesign
+            echo "Ad-hoc signing .app bundle..."
+            codesign --force --deep --sign - "$APP_PATH" || true
+
+            # Package into IPA
+            echo "Packaging into IPA..."
+            mkdir -p Payload
+            cp -R "$APP_PATH" Payload/
+            zip -r -y output-ios/Museek-3.8.0.ipa Payload/
+            rm -rf Payload
+
+            # Companion zip
+            APP_NAME=$(basename "$APP_PATH")
+            APP_DIR=$(dirname "$APP_PATH")
+            (cd "$APP_DIR" && zip -r -y "$GITHUB_WORKSPACE/output-ios/${APP_NAME}.zip" "$APP_NAME")
           fi
-          echo "Found app bundle at: $APP_PATH"
-
-          # 1. Ad-hoc codesign the .app bundle
-          echo "Ad-hoc signing .app bundle..."
-          codesign --force --deep --sign - "$APP_PATH" || true
-
-          # 2. Package into Payload/ -> Museek-3.8.0.ipa
-          echo "Packaging into IPA..."
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-          zip -r -y output-ios/Museek-3.8.0.ipa Payload/
-          rm -rf Payload
-
-          # 3. Also package .app into zip as companion artifact
-          APP_NAME=$(basename "$APP_PATH")
-          APP_DIR=$(dirname "$APP_PATH")
-          (cd "$APP_DIR" && zip -r -y "$GITHUB_WORKSPACE/output-ios/${APP_NAME}.zip" "$APP_NAME")
 
           echo "Final iOS artifacts:"
           ls -lh output-ios/
