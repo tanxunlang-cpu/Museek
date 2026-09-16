@@ -62,13 +62,35 @@ jobs:
           node scripts/patch-android.js
 
       - name: Build Android APK
-        run: pnpm tauri android build --apk
+        run: pnpm tauri android build --apk --target aarch64-linux-android
 
-      - name: Organize APK Artifacts
+      - name: Organize and Sign APK Artifacts
         run: |
           mkdir -p output-apks
-          find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" -exec cp {} output-apks/ \;
-          ls -la output-apks/
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* 2>/dev/null | sort -V | tail -n 1)
+          echo "Using Android build tools from: $BUILD_TOOLS_DIR"
+          
+          keytool -genkeypair -v -keystore release.jks -alias museek -keyalg RSA -keysize 2048 -validity 10000 -storepass museek123 -keypass museek123 -dname "CN=Museek, OU=App, O=Museek, C=CN"
+
+          find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" | while read -r apk; do
+            filename=$(basename "$apk")
+            if [[ "$filename" == *"unsigned"* ]]; then
+              signed_name="${filename//-unsigned/}"
+              echo "Signing $filename -> $signed_name..."
+              $BUILD_TOOLS_DIR/apksigner sign --ks release.jks --ks-pass pass:museek123 --key-pass pass:museek123 --ks-key-alias museek --out "output-apks/$signed_name" "$apk"
+            else
+              cp "$apk" output-apks/
+            fi
+          done
+
+          echo "Final APKs in output-apks:"
+          ls -lh output-apks/
+          for apk in output-apks/*.apk; do
+            if [ -f "$apk" ]; then
+              echo "Verifying $apk..."
+              $BUILD_TOOLS_DIR/apksigner verify -v "$apk" || true
+            fi
+          done
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

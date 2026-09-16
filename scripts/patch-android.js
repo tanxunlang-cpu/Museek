@@ -38,3 +38,21 @@ if (!content.includes('android:usesCleartextTraffic="true"')) {
 
 fs.writeFileSync(manifestPath, content, "utf-8");
 console.log("[patch-android] Successfully patched AndroidManifest.xml with network & media playback permissions!");
+
+const gradlePath = path.resolve(
+  __dirname,
+  "../src-tauri/gen/android/app/build.gradle.kts",
+);
+
+if (fs.existsSync(gradlePath)) {
+  let gradle = fs.readFileSync(gradlePath, "utf-8");
+  if (!gradle.includes("signingConfigs.getByName(\"debug\")") && gradle.includes('getByName("release") {')) {
+    gradle = gradle.replace(
+      'getByName("release") {',
+      'getByName("release") {\n            signingConfig = signingConfigs.getByName("debug")',
+    );
+    fs.writeFileSync(gradlePath, gradle, "utf-8");
+    console.log("[patch-android] Successfully configured release signingConfig to debug in build.gradle.kts!");
+  }
+}
+

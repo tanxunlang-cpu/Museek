@@ -5,3 +5,10 @@ export function isMacOs(): boolean {
   const platform = (navigator.platform || "").toLowerCase()
   return platform.includes("mac") || ua.includes("mac")
 }
+
+export function isMobile(): boolean {
+  if (typeof navigator === "undefined") return false
+  const ua = navigator.userAgent.toLowerCase()
+  return /android|iphone|ipad|ipod|mobile/i.test(ua)
+}
+

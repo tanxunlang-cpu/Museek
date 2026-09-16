@@ -11,7 +11,7 @@ import {
 import { runShortcutAction } from "@/lib/shortcutActions";
 import { notify } from "@/lib/notify";
 import { t } from "@/lib/i18n";
-import { isMacOs } from "@/lib/os";
+import { isMacOs, isMobile } from "@/lib/os";
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -57,7 +57,7 @@ export function formatShortcutOsFailure(combo: string, reason: string): string {
 
 export async function suspendGlobalShortcuts(): Promise<void> {
   registerGeneration += 1;
-  if (!isTauri) return;
+  if (!isTauri || isMobile()) return;
   try {
     const { unregisterAll } = await import(
       "@tauri-apps/plugin-global-shortcut"
@@ -69,7 +69,7 @@ export async function suspendGlobalShortcuts(): Promise<void> {
 }
 
 export async function resumeGlobalShortcuts(): Promise<void> {
-  if (!isTauri) return;
+  if (!isTauri || isMobile()) return;
   const { hydrated, shortcuts } = useSettingsStore.getState();
   if (!hydrated) return;
   await syncGlobalShortcuts(shortcuts, { silent: true });
@@ -79,7 +79,7 @@ export async function resumeGlobalShortcuts(): Promise<void> {
 export async function probeGlobalShortcut(
   accel: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
-  if (!isTauri) return { ok: true };
+  if (!isTauri || isMobile()) return { ok: true };
   try {
     const { register, unregister, isRegistered } = await import(
       "@tauri-apps/plugin-global-shortcut"
@@ -103,6 +103,7 @@ async function syncGlobalShortcuts(
   map: ShortcutMap,
   options: { silent?: boolean } = {},
 ): Promise<void> {
+  if (!isTauri || isMobile()) return;
   const gen = ++registerGeneration;
   const { unregisterAll, register } = await import(
     "@tauri-apps/plugin-global-shortcut"
@@ -199,7 +200,7 @@ export function useGlobalShortcuts(): void {
     };
     window.addEventListener("keydown", onKey, true);
 
-    if (!isTauri) {
+    if (!isTauri || isMobile()) {
       return () => window.removeEventListener("keydown", onKey, true);
     }
 

@@ -2,6 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "lyrics",
   "description": "Capability for the desktop lyrics window",
+  "platforms": ["macOS", "windows", "linux"],
   "windows": ["lyrics"],
   "permissions": [
     "core:default",
