@@ -62,7 +62,7 @@ jobs:
           node scripts/patch-android.js
 
       - name: Build Android APK
-        run: pnpm tauri android build --apk --target aarch64-linux-android
+        run: pnpm tauri android build --apk --target aarch64
 
       - name: Organize and Sign APK Artifacts
         run: |
