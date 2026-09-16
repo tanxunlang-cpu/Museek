@@ -64,7 +64,7 @@ jobs:
 
       - name: Build iOS Application
         run: |
-          CI=true pnpm tauri ios build --export-method debugging -- -- CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO || true
+          CI=true pnpm tauri ios build --export-method debugging || true
 
       - name: Package iOS IPA & App Bundles
         run: |
@@ -73,20 +73,21 @@ jobs:
 
           # Search for existing IPA or .app bundle
           IPA_FOUND=$(find src-tauri/gen/apple "$HOME/Library/Developer/Xcode/DerivedData" -type f -name "*.ipa" 2>/dev/null | head -n 1)
-          if [ -n "$IPA_FOUND" ]; then
-            echo "Found existing IPA at: $IPA_FOUND"
+          if [ -n "$IPA_FOUND" ] && [ -s "$IPA_FOUND" ]; then
+            echo "Found existing non-empty IPA at: $IPA_FOUND"
             cp "$IPA_FOUND" output-ios/Museek-3.8.0.ipa
           else
-            APP_PATH=$(find src-tauri/gen/apple "$HOME/Library/Developer/Xcode/DerivedData" -type d -name "*.app" 2>/dev/null | head -n 1)
+            # Find the compiled .app bundle containing Info.plist
+            APP_PATH=$(find src-tauri/gen/apple "$HOME/Library/Developer/Xcode/DerivedData" -type d -name "*.app" -exec test -f "{}/Info.plist" \; -print 2>/dev/null | head -n 1)
             if [ -z "$APP_PATH" ]; then
-              echo "ERROR: No .app bundle found!"
-              echo "Listing contents of src-tauri/gen/apple:"
-              find src-tauri/gen/apple -maxdepth 4 || true
+              echo "ERROR: No valid .app bundle containing Info.plist found!"
+              echo "Listing contents of build directories:"
+              find src-tauri/gen/apple "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 4 || true
               exit 1
             fi
-            echo "Found app bundle at: $APP_PATH"
+            echo "Found valid compiled app bundle at: $APP_PATH"
 
-            # Ad-hoc codesign
+            # Ad-hoc codesign the .app bundle
             echo "Ad-hoc signing .app bundle..."
             codesign --force --deep --sign - "$APP_PATH" || true
 
