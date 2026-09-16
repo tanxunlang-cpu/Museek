@@ -27,14 +27,14 @@ export function Controls({
   className?: string
   showSecondary?: boolean
 } = {}) {
-  const { isPlaying, playMode, status, playPending, currentSong, togglePlay, next, prev, setPlayMode } = usePlayerStore()
+  const { isPlaying, playMode, status, playPending, currentSong, queue, togglePlay, next, prev, setPlayMode } = usePlayerStore()
   const favorites = usePlaylistStore((s) => s.favorites)
   const addToFavorites = usePlaylistStore((s) => s.addToFavorites)
   const removeFromFavorites = usePlaylistStore((s) => s.removeFromFavorites)
   const t = useT()
 
   const loading = status === "loading" || playPending
-  const canPlay = status !== "idle"
+  const canPlay = Boolean(currentSong) || queue.length > 0
   const isLocal = currentSong?.source === "local"
   const fav = !!currentSong && !isLocal && favorites.some((f) => f.id === currentSong.id)
 

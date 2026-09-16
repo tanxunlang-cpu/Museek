@@ -1,6 +1,6 @@
 import { httpFetch } from "@/lib/http"
 import { t } from "@/lib/i18n"
-import { parseScriptMeta } from "@/lib/lxApi"
+import { createLxApi, parseScriptMeta } from "@/lib/lxApi"
 import { assertAllowedSourceUrl } from "@/lib/sources/urlPolicy"
 import type { LxRequestResult, SourceScript } from "@/types/source"
 import type { HostToSourceWorker, SourceWorkerToHost } from "./sourceWorkerMessages"
@@ -30,6 +30,7 @@ function mapInitError(error: string, needsDom?: boolean): Error {
 
 export class SourceWorkerHost {
   private worker: Worker | null = null
+  private inThreadHandler: ((payload: unknown) => Promise<LxRequestResult>) | null = null
   private scriptId = ""
   private callSeq = 0
   private httpAborts = new Map<string, AbortController>()
@@ -49,39 +50,109 @@ export class SourceWorkerHost {
   async start(script: SourceScript): Promise<Record<string, unknown> | undefined> {
     this.scriptId = script.id
     const meta = parseScriptMeta(script.rawScript)
-    const worker = new Worker(new URL("./sourceWorker.ts", import.meta.url), {
-      type: "module",
-    })
-    this.worker = worker
-    worker.onmessage = (ev: MessageEvent<SourceWorkerToHost>) => {
-      this.onMessage(ev.data)
-    }
-    worker.onerror = (ev) => {
-      const err = new Error(ev.message || t("sources.err.workerCrash"))
-      if (this.initWaiter || this.readyWaiter) {
-        this.failInit(err)
-        return
+    try {
+      const worker = new Worker(new URL("./sourceWorker.ts", import.meta.url), {
+        type: "module",
+      })
+      this.worker = worker
+      worker.onmessage = (ev: MessageEvent<SourceWorkerToHost>) => {
+        this.onMessage(ev.data)
       }
-      for (const waiter of this.invokeWaiters.values()) waiter.reject(err)
-      this.invokeWaiters.clear()
-      this.worker = null
-    }
+      worker.onerror = (ev) => {
+        const err = new Error(ev.message || t("sources.err.workerCrash"))
+        if (this.initWaiter || this.readyWaiter) {
+          this.failInit(err)
+          return
+        }
+        for (const waiter of this.invokeWaiters.values()) waiter.reject(err)
+        this.invokeWaiters.clear()
+        this.worker = null
+      }
 
-    await this.waitReady()
-    const inited = this.waitInited()
-    this.post({
-      type: "init",
-      scriptId: script.id,
-      rawScript: script.rawScript,
-      name: meta.name,
-      version: meta.version,
-      author: meta.author,
-      description: meta.description,
+      await this.waitReady()
+      const inited = this.waitInited()
+      this.post({
+        type: "init",
+        scriptId: script.id,
+        rawScript: script.rawScript,
+        name: meta.name,
+        version: meta.version,
+        author: meta.author,
+        description: meta.description,
+      })
+      return await inited
+    } catch (workerErr) {
+      console.warn(
+        `[sourceWorkerHost] Worker execution unavailable for ${script.name}, falling back to in-thread runner:`,
+        workerErr,
+      )
+      this.terminate()
+      return this.startInThread(script)
+    }
+  }
+
+  private startInThread(script: SourceScript): Promise<Record<string, unknown> | undefined> {
+    this.scriptId = script.id
+    const meta = parseScriptMeta(script.rawScript)
+    return new Promise((resolve, reject) => {
+      let settled = false
+      let registeredHandler: ((payload: unknown) => Promise<LxRequestResult>) | null = null
+      const lx = createLxApi({
+        scriptInfo: {
+          name: meta.name,
+          version: meta.version,
+          author: meta.author,
+          description: meta.description,
+          rawScript: script.rawScript,
+        },
+        requestFn: (url, init) => {
+          assertAllowedSourceUrl(url, script.id)
+          return httpFetch(url, init)
+        },
+        onRequestRegister: (handler) => {
+          registeredHandler = handler
+          this.inThreadHandler = handler
+        },
+        onInited: (sourceInfo) => {
+          if (settled) return
+          settled = true
+          const sources =
+            sourceInfo && typeof sourceInfo === "object" && "sources" in sourceInfo
+              ? (sourceInfo.sources as Record<string, unknown>)
+              : undefined
+          resolve(sources)
+        },
+      })
+      const prevLx = (globalThis as unknown as { lx?: unknown }).lx
+      try {
+        ;(globalThis as unknown as { lx: unknown }).lx = lx
+        // eslint-disable-next-line no-new-func
+        const fn = new Function("lx", script.rawScript)
+        fn(lx)
+      } catch (err) {
+        if (!settled) {
+          settled = true
+          reject(err)
+        }
+      } finally {
+        if (prevLx !== undefined) {
+          ;(globalThis as unknown as { lx: unknown }).lx = prevLx
+        }
+      }
+      setTimeout(() => {
+        if (!settled) {
+          settled = true
+          if (registeredHandler) resolve(undefined)
+          else reject(new Error("Script did not register a request handler"))
+        }
+      }, 5000)
     })
-    return inited
   }
 
   invoke(payload: unknown): Promise<LxRequestResult> {
+    if (this.inThreadHandler) {
+      return this.inThreadHandler(payload)
+    }
     const worker = this.worker
     if (!worker) return Promise.reject(new Error("source worker is not running"))
     const callId = String(++this.callSeq)
@@ -92,6 +163,7 @@ export class SourceWorkerHost {
   }
 
   terminate(): void {
+    this.inThreadHandler = null
     this.clearTimers()
     for (const ac of this.httpAborts.values()) ac.abort()
     this.httpAborts.clear()

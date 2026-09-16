@@ -178,7 +178,6 @@ export const useSourceStore = create<SourceState>((set, get) => ({
     if (!diskScripts || diskScripts.length === 0) {
       scripts = builtinScripts;
       saveSourceScripts(scripts);
-    } else {
       const existingUrlsOrIds = new Set(
         scripts.map((s) => s.url || s.id).filter(Boolean) as string[],
       );
@@ -190,10 +189,22 @@ export const useSourceStore = create<SourceState>((set, get) => ({
       if (missingBuiltins.length > 0) {
         scripts = [
           ...scripts,
-          ...missingBuiltins.map((b) => ({ ...b, enabled: false })),
+          ...missingBuiltins.map((b) => ({ ...b })),
         ];
-        saveSourceScripts(scripts);
       }
+
+      // If user had <= 1 enabled source (migrated from previous broken default),
+      // ensure the verified functional builtin sources are enabled
+      const enabledCount = scripts.filter((s) => s.enabled).length;
+      if (enabledCount <= 1) {
+        const workingIds = new Set(
+          builtinScripts.filter((b) => b.enabled).map((b) => b.id),
+        );
+        scripts = scripts.map((s) =>
+          workingIds.has(s.id) ? { ...s, enabled: true } : s,
+        );
+      }
+      saveSourceScripts(scripts);
     }
     const known = new Set(scripts.map((s) => s.id));
     const probeResults = Object.fromEntries(

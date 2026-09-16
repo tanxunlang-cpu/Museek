@@ -233,32 +233,17 @@ export async function resolvePlayableSrc(
     if (cached) return cached
   }
 
-  // Prefer https for NetEase CDN (WebView-friendly); stream immediately so a
-  // slow full-file cache download can't leave the player on infinite loading.
-  const streamUrl = isNetEaseCdnUrl(url) ? url.replace(/^http:\/\//i, "https://") : url
-  if (!opts.audioCache) return streamUrl
-
-  // NetEase: play via stream first; warm disk cache in the background (long timeout).
-  if (isNetEaseCdnUrl(url) || song.source === "wy") {
-    warmDiskCache(song, quality, url, opts.maxCacheMB)
-    return streamUrl
+  // Upgrade HTTP to HTTPS for major music CDNs that support TLS (avoids WebView mixed-content blocks)
+  let streamUrl = url
+  if (/^http:\/\/(?:[a-zA-Z0-9-]+\.)*(?:126\.net|163\.com|netease|lazyaudio|kuwo\.cn|kugou\.com|kgimg|qq\.com|gtimg\.cn|tencentmusic|migu\.cn)/i.test(url)) {
+    streamUrl = url.replace(/^http:\/\//i, "https://")
   }
 
-  try {
-    const downloaded = await downloadAudioBytes(url, CACHE_DOWNLOAD_MS)
-    if (downloaded) {
-      const { bytes } = downloaded
-      const { ext, mime } = mimeForQuality(quality)
-      const maxBytes = opts.maxCacheMB * 1024 * 1024
-      await putCachedAudio(song.source, song.meta.songId, quality, bytes, ext, maxBytes)
-      return URL.createObjectURL(new Blob([bytes], { type: mime }))
-    }
-  } catch {
-    /* fall through to remote URL */
+  // Stream immediately so playback starts instantly (<300ms) without blocking on a 12s full file download;
+  // warm disk cache asynchronously in the background.
+  if (opts.audioCache) {
+    warmDiskCache(song, quality, streamUrl, opts.maxCacheMB)
   }
-
-  // Timed download missed — still warm in background so the next play can hit.
-  warmDiskCache(song, quality, url, opts.maxCacheMB)
   return streamUrl
 }
 

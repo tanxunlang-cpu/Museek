@@ -773,7 +773,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
             await playWithTimeout();
             return;
           }
-          if (song) await get().play(song, preferred);
+          if (song) {
+            await get().play(song, preferred);
+            return;
+          }
+          if (get().queue.length > 0) {
+            await get().playFromQueue(0);
+            return;
+          }
+          notify({
+            message: "请先从搜索或榜单中选择歌曲播放",
+            variant: "info",
+          });
         } catch (err) {
           if (get().status === "loading") return;
           if (isIgnorablePlayError(err)) return;
