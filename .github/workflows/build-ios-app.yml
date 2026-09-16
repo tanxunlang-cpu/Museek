@@ -10,11 +10,22 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: |
+          echo "Available Xcode installations:"
+          ls -d /Applications/Xcode*.app || true
+          LATEST_XCODE=$(ls -d /Applications/Xcode_16*.app /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST_XCODE" ]; then
+            echo "Selecting Xcode: $LATEST_XCODE"
+            sudo xcode-select -s "$LATEST_XCODE"
+          fi
+          xcodebuild -version
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -57,12 +68,13 @@ jobs:
           XCODEPROJ=$(find src-tauri/gen/apple -maxdepth 1 -name "*.xcodeproj" | head -n 1)
           echo "Found Xcode project: $XCODEPROJ"
 
-          # Print available schemes
+          # Print available schemes and SDKs
           xcodebuild -list -project "$XCODEPROJ"
+          xcodebuild -showsdks
 
-          SCHEME=$(xcodebuild -list -project "$XCODEPROJ" | grep -E "_iOS|iOS" | head -n 1 | tr -d '[:space:]')
+          SCHEME=$(xcodebuild -list -project "$XCODEPROJ" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | grep -i "ios" | head -n 1 | tr -d '[:space:]')
           if [ -z "$SCHEME" ]; then
-            SCHEME="museek_iOS"
+            SCHEME=$(xcodebuild -list -project "$XCODEPROJ" | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | head -n 1 | tr -d '[:space:]')
           fi
           echo "Selected Scheme: $SCHEME"
 

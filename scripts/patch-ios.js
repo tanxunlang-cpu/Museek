@@ -132,6 +132,14 @@ for (const pbxPath of pbxFiles) {
   let pbx = original;
   let pbxModified = false;
 
+  // Fix objectVersion 77 -> 60 for Xcode 15/16 universal compatibility
+  if (pbx.includes("objectVersion = 77;")) {
+    pbx = pbx.replace(/objectVersion = 77;/g, "objectVersion = 60;");
+    pbx = pbx.replace(/compatibilityVersion = "Xcode 16.0";/g, 'compatibilityVersion = "Xcode 15.0";');
+    pbxModified = true;
+    console.log(`[patch-ios] Adjusted objectVersion from 77 to 60 in ${pbxPath}`);
+  }
+
   // Inject PATH into shellScript phases if not present
   if (pbx.includes("shellScript = ") && !pbx.includes('.cargo/bin')) {
     pbx = pbx.replace(
