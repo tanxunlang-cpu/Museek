@@ -15,30 +15,29 @@ if (!fs.existsSync(manifestPath)) {
 
 let content = fs.readFileSync(manifestPath, "utf-8");
 
-const permissions = [
-  '<uses-permission android:name="android.permission.INTERNET" />',
-  '<uses-permission android:name="android.permission.WAKE_LOCK" />',
-  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
-  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
-];
-
-for (const perm of permissions) {
-  if (!content.includes(perm)) {
-    content = content.replace("<application", `    ${perm}\n    <application`);
-  }
+// 1. Configure usesCleartextTraffic safely without creating duplicate XML attributes
+if (content.includes("${usesCleartextTraffic}")) {
+  content = content.replace("${usesCleartextTraffic}", "true");
+} else if (!content.includes("android:usesCleartextTraffic=")) {
+  content = content.replace("<application", '<application\n        android:usesCleartextTraffic="true"');
 }
 
-// Add usesCleartextTraffic="true" to <application>
-if (!content.includes('android:usesCleartextTraffic="true"')) {
-  content = content.replace(
-    "<application",
-    '<application\n        android:usesCleartextTraffic="true"',
-  );
+// 2. Add extra permissions cleanly before <application
+const extraPermissions = [
+  '    <uses-permission android:name="android.permission.WAKE_LOCK" />',
+  '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+  '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
+];
+
+const needed = extraPermissions.filter((p) => !content.includes(p.trim()));
+if (needed.length > 0) {
+  content = content.replace("<application", needed.join("\n") + "\n\n    <application");
 }
 
 fs.writeFileSync(manifestPath, content, "utf-8");
-console.log("[patch-android] Successfully patched AndroidManifest.xml with network & media playback permissions!");
+console.log("[patch-android] Successfully patched AndroidManifest.xml! Content:\n", content);
 
+// 3. Patch build.gradle.kts for signing and manifest placeholders
 const gradlePath = path.resolve(
   __dirname,
   "../src-tauri/gen/android/app/build.gradle.kts",
@@ -51,8 +50,13 @@ if (fs.existsSync(gradlePath)) {
       'getByName("release") {',
       'getByName("release") {\n            signingConfig = signingConfigs.getByName("debug")',
     );
-    fs.writeFileSync(gradlePath, gradle, "utf-8");
-    console.log("[patch-android] Successfully configured release signingConfig to debug in build.gradle.kts!");
   }
+  if (!gradle.includes('manifestPlaceholders["usesCleartextTraffic"] = "true"') && gradle.includes("defaultConfig {")) {
+    gradle = gradle.replace(
+      "defaultConfig {",
+      'defaultConfig {\n        manifestPlaceholders["usesCleartextTraffic"] = "true"',
+    );
+  }
+  fs.writeFileSync(gradlePath, gradle, "utf-8");
+  console.log("[patch-android] Successfully configured build.gradle.kts!");
 }
-
