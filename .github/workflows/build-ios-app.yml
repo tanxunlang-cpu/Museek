@@ -1,0 +1,145 @@
+name: Build iOS App
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Link Cargo to standard system path
+        run: |
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          sudo ln -sf "$HOME/.cargo/bin/"* /usr/local/bin/ || true
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Initialize Tauri iOS project and patch configurations
+        run: |
+          CI=true pnpm tauri ios init
+          node scripts/patch-ios.js
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Archive iOS Application
+        run: |
+          set -e
+          XCODEPROJ=$(find src-tauri/gen/apple -maxdepth 1 -name "*.xcodeproj" | head -n 1)
+          echo "Found Xcode project: $XCODEPROJ"
+
+          # Print available schemes
+          xcodebuild -list -project "$XCODEPROJ"
+
+          SCHEME=$(xcodebuild -list -project "$XCODEPROJ" | grep -E "_iOS|iOS" | head -n 1 | tr -d '[:space:]')
+          if [ -z "$SCHEME" ]; then
+            SCHEME="museek_iOS"
+          fi
+          echo "Selected Scheme: $SCHEME"
+
+          mkdir -p src-tauri/gen/apple/build
+
+          echo "Running xcodebuild archive..."
+          xcodebuild archive \
+            -project "$XCODEPROJ" \
+            -scheme "$SCHEME" \
+            -destination "generic/platform=iOS" \
+            -archivePath "$PWD/src-tauri/gen/apple/build/Museek.xcarchive" \
+            -configuration Release \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM="" || true
+
+          if [ ! -d "src-tauri/gen/apple/build/Museek.xcarchive" ]; then
+            echo "Archive folder not found, attempting direct release build..."
+            xcodebuild build \
+              -project "$XCODEPROJ" \
+              -scheme "$SCHEME" \
+              -destination "generic/platform=iOS" \
+              -configuration Release \
+              -derivedDataPath "$PWD/src-tauri/gen/apple/build/DerivedData" \
+              CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              PROVISIONING_PROFILE_SPECIFIER="" \
+              DEVELOPMENT_TEAM=""
+          fi
+
+      - name: Package iOS IPA & App Bundles
+        run: |
+          set -e
+          mkdir -p output-ios
+          APP_PATH=$(find src-tauri/gen/apple/build -type d -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No .app bundle found in build folder!"
+            find src-tauri/gen/apple -type d -name "*.app"
+            exit 1
+          fi
+          echo "Found app bundle at: $APP_PATH"
+
+          # 1. Ad-hoc codesign the .app bundle
+          echo "Ad-hoc signing .app bundle..."
+          codesign --force --deep --sign - "$APP_PATH" || true
+
+          # 2. Package into Payload/ -> Museek-3.8.0.ipa
+          echo "Packaging into IPA..."
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r -y output-ios/Museek-3.8.0.ipa Payload/
+          rm -rf Payload
+
+          # 3. Also package .app into zip as companion artifact
+          APP_NAME=$(basename "$APP_PATH")
+          APP_DIR=$(dirname "$APP_PATH")
+          (cd "$APP_DIR" && zip -r -y "$GITHUB_WORKSPACE/output-ios/${APP_NAME}.zip" "$APP_NAME")
+
+          echo "Final iOS artifacts:"
+          ls -lh output-ios/
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Museek-iOS-IPA
+          path: output-ios/*
+
+      - name: Release iOS IPA (if tagged)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output-ios/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

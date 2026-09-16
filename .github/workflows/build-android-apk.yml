@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - ".github/workflows/build-ios-app.yml"
+      - "scripts/patch-ios.js"
+      - "src-tauri/Info.ios.plist"
+      - "src-tauri/tauri.ios.conf.json"
     tags:
       - "v*"
 

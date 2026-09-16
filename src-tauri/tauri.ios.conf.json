@@ -1,0 +1,24 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Museek",
+        "visible": true
+      }
+    ]
+  },
+  "bundle": {
+    "iOS": {
+      "infoPlist": {
+        "CFBundleDisplayName": "Museek",
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    }
+  }
+}
