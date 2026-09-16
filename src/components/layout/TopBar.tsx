@@ -123,7 +123,7 @@ export function TopBar() {
   return (
     <div
       data-tauri-drag-region
-      className="h-10 shrink-0 flex items-center gap-0.5 border-b border-border/50 pl-2 pr-1"
+      className="h-[calc(2.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 flex items-center gap-0.5 border-b border-border/50 pl-2 pr-1"
     >
       <Button
         variant="ghost"
@@ -144,7 +144,7 @@ export function TopBar() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground icon-hover-captions"
+        className="hidden sm:inline-flex h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground icon-hover-captions"
         onClick={toggleTopBarLyrics}
         title={topBarLyrics ? t("topBar.lyricsHide") : t("topBar.lyricsShow")}
       >
@@ -176,7 +176,7 @@ export function TopBar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground icon-hover-arrow-right"
+            className="hidden sm:inline-flex h-7 w-7 text-muted-foreground hover:text-foreground icon-hover-arrow-right"
             onClick={() => navigate(1)}
             title={t("nav.forward")}
           >

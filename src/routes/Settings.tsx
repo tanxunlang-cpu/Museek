@@ -25,6 +25,8 @@ import { ShortcutsSettings } from "@/components/settings/ShortcutsSettings";
 import { AboutSettings } from "@/components/settings/AboutSettings";
 import { useT } from "@/lib/i18n";
 
+import { cn } from "@/lib/utils";
+
 const TAB_VALUES = [
   "sources",
   "playback",
@@ -70,25 +72,27 @@ export function Settings() {
     setParams(v === "sources" ? {} : { tab: v }, { replace: true });
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-border flex items-center gap-2">
+      <div className="p-3 md:p-4 border-b border-border flex items-center gap-2 shrink-0">
         <SettingsIcon size={20} />
         <h2 className="text-lg font-semibold">{t("settings.title")}</h2>
       </div>
-      <div className="flex-1 min-h-0 p-4">
+      <div className="flex-1 min-h-0 p-2 md:p-4">
         <Tabs
           value={tab}
           onValueChange={setTab}
-          orientation="vertical"
-          className="flex gap-4 h-full"
+          className="flex flex-col md:flex-row gap-3 md:gap-4 h-full"
         >
-          <TabsList className="flex-col h-auto w-40 shrink-0 items-stretch justify-start gap-2 bg-muted/60 p-1.5">
+          <TabsList className="flex flex-row md:flex-col h-auto overflow-x-auto md:overflow-x-visible w-full md:w-40 shrink-0 items-center md:items-stretch justify-start gap-1 md:gap-2 bg-muted/60 p-1 md:p-1.5 rounded-xl no-scrollbar">
             {SETTINGS_TABS.map((tabItem) => {
               const Icon = tabItem.icon;
               return (
                 <TabsTrigger
                   key={tabItem.value}
                   value={tabItem.value}
-                  className="w-full justify-start gap-2 px-2.5"
+                  className={cn(
+                    "w-auto md:w-full shrink-0 justify-start gap-1.5 md:gap-2 px-3 py-1.5 text-xs md:text-sm whitespace-nowrap rounded-lg",
+                    tabItem.value === "shortcuts" && "hidden md:inline-flex"
+                  )}
                 >
                   <Icon
                     size={15}
@@ -102,45 +106,47 @@ export function Settings() {
             })}
           </TabsList>
 
-          <TabsContent value="sources" className="mt-0 flex-1 min-h-0">
-            <SourceManager />
-          </TabsContent>
+          <div className="flex-1 min-h-0 overflow-y-auto pb-8 md:pb-4 pr-0.5">
+            <TabsContent value="sources" className="mt-0 h-full">
+              <SourceManager />
+            </TabsContent>
 
-          <TabsContent value="playback" className="mt-0 flex-1 min-h-0">
-            <PlaybackSettings />
-          </TabsContent>
+            <TabsContent value="playback" className="mt-0 h-full">
+              <PlaybackSettings />
+            </TabsContent>
 
-          <TabsContent value="lyrics" className="mt-0 flex-1 min-h-0">
-            <LyricsSettings />
-          </TabsContent>
+            <TabsContent value="lyrics" className="mt-0 h-full">
+              <LyricsSettings />
+            </TabsContent>
 
-          <TabsContent value="download" className="mt-0 flex-1 min-h-0">
-            <DownloadSettings />
-          </TabsContent>
+            <TabsContent value="download" className="mt-0 h-full">
+              <DownloadSettings />
+            </TabsContent>
 
-          <TabsContent value="local" className="mt-0 flex-1 min-h-0">
-            <LocalSettings />
-          </TabsContent>
+            <TabsContent value="local" className="mt-0 h-full">
+              <LocalSettings />
+            </TabsContent>
 
-          <TabsContent value="cache" className="mt-0 flex-1 min-h-0">
-            <CacheSettings />
-          </TabsContent>
+            <TabsContent value="cache" className="mt-0 h-full">
+              <CacheSettings />
+            </TabsContent>
 
-          <TabsContent value="shortcuts" className="mt-0 flex-1 min-h-0">
-            <ShortcutsSettings />
-          </TabsContent>
+            <TabsContent value="shortcuts" className="mt-0 h-full">
+              <ShortcutsSettings />
+            </TabsContent>
 
-          <TabsContent value="appearance" className="mt-0 flex-1 min-h-0">
-            <ThemeSettings />
-          </TabsContent>
+            <TabsContent value="appearance" className="mt-0 h-full">
+              <ThemeSettings />
+            </TabsContent>
 
-          <TabsContent value="data" className="mt-0 flex-1 min-h-0">
-            <DataSettings />
-          </TabsContent>
+            <TabsContent value="data" className="mt-0 h-full">
+              <DataSettings />
+            </TabsContent>
 
-          <TabsContent value="about" className="mt-0 flex-1 min-h-0">
-            <AboutSettings />
-          </TabsContent>
+            <TabsContent value="about" className="mt-0 h-full">
+              <AboutSettings />
+            </TabsContent>
+          </div>
         </Tabs>
       </div>
     </div>

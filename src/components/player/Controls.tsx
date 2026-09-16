@@ -20,7 +20,13 @@ function modeHoverClass(playMode: string) {
   return "icon-hover-list"
 }
 
-export function Controls() {
+export function Controls({
+  className,
+  showSecondary = true,
+}: {
+  className?: string
+  showSecondary?: boolean
+} = {}) {
   const { isPlaying, playMode, status, playPending, currentSong, togglePlay, next, prev, setPlayMode } = usePlayerStore()
   const favorites = usePlaylistStore((s) => s.favorites)
   const addToFavorites = usePlaylistStore((s) => s.addToFavorites)
@@ -45,11 +51,15 @@ export function Controls() {
   }
 
   return (
-    <div className="flex items-center gap-1">
+    <div className={cn("flex items-center gap-1", className)}>
       <Button
         variant="ghost"
         size="icon"
-        className={cn("h-9 w-9 text-muted-foreground", modeHoverClass(playMode))}
+        className={cn(
+          "h-9 w-9 text-muted-foreground",
+          modeHoverClass(playMode),
+          !showSecondary && "hidden sm:inline-flex",
+        )}
         onClick={cyclePlayMode}
         title={t(`playMode.${playMode}`)}
       >
@@ -124,7 +134,11 @@ export function Controls() {
       <Button
         variant="ghost"
         size="icon"
-        className={cn("h-9 w-9 icon-hover-heart", fav ? "text-red-500 hover:text-red-500" : "text-muted-foreground")}
+        className={cn(
+          "h-9 w-9 icon-hover-heart",
+          fav ? "text-red-500 hover:text-red-500" : "text-muted-foreground",
+          !showSecondary && "hidden sm:inline-flex",
+        )}
         onClick={toggleFav}
         disabled={!currentSong || isLocal}
         title={isLocal ? t("local.favoriteDisabled") : t("common.favorite")}

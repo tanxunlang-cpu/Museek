@@ -354,7 +354,7 @@ function SortableSourceRow({
           </div>
         ) : null}
       </TableCell>
-      <TableCell className="w-[4.5rem] px-2 py-1.5">
+      <TableCell className="hidden sm:table-cell w-[4.5rem] px-2 py-1.5">
         <div className={cn(dim)}>
           <OriginBadge origin={scriptOrigin(script)} />
         </div>
@@ -707,7 +707,7 @@ export function SourceManager() {
           </div>
         </div>
 
-        <div className="flex h-[calc(2.25rem*2+0.5rem)] items-stretch gap-2">
+        <div className="flex flex-col sm:flex-row sm:h-[calc(2.25rem*2+0.5rem)] items-stretch gap-2">
           <div
             ref={dropZoneRef}
             onDragEnter={(e) => {
@@ -725,7 +725,7 @@ export function SourceManager() {
             }}
             onDrop={handleFileDrop}
             className={cn(
-              "flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 text-center transition-colors",
+              "hidden sm:flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 text-center transition-colors",
               fileDragOver
                 ? "border-primary bg-primary/5"
                 : "border-muted-foreground/25 bg-muted/20 hover:border-muted-foreground/40",
@@ -739,16 +739,16 @@ export function SourceManager() {
             )}
             <p className="text-xs text-muted-foreground">{t("sources.dropHint")}</p>
           </div>
-          <div className="flex w-36 shrink-0 flex-col gap-2">
-            <Button variant="outline" onClick={() => setGetOpen(true)} className="h-9" disabled={busy}>
-              <QrCode size={16} className="mr-2" />
+          <div className="flex w-full sm:w-36 shrink-0 flex-row sm:flex-col gap-2">
+            <Button variant="outline" onClick={() => setGetOpen(true)} className="flex-1 sm:flex-none h-9 text-xs sm:text-sm" disabled={busy}>
+              <QrCode size={16} className="mr-1.5 sm:mr-2 shrink-0" />
               {t("sources.getSources")}
             </Button>
-            <Button variant="outline" onClick={handleImportFilePick} disabled={busy} className="h-9">
+            <Button variant="outline" onClick={handleImportFilePick} disabled={busy} className="flex-1 sm:flex-none h-9 text-xs sm:text-sm">
               {importing ? (
-                <Loader2 size={16} className="mr-2 animate-spin" />
+                <Loader2 size={16} className="mr-1.5 sm:mr-2 animate-spin shrink-0" />
               ) : (
-                <FolderOpen size={16} className="mr-2" />
+                <FolderOpen size={16} className="mr-1.5 sm:mr-2 shrink-0" />
               )}
               {t("sources.browseFiles")}
             </Button>
@@ -796,7 +796,7 @@ export function SourceManager() {
                   <TableRow className="border-b border-border hover:bg-transparent">
                     <TableHead className="h-8 w-8 px-1.5" />
                     <TableHead className="h-8 px-2 text-xs">{t("sources.colName")}</TableHead>
-                    <TableHead className="h-8 w-[4.5rem] px-2 text-xs">{t("sources.colOrigin")}</TableHead>
+                    <TableHead className="hidden sm:table-cell h-8 w-[4.5rem] px-2 text-xs">{t("sources.colOrigin")}</TableHead>
                     <TableHead className="h-8 w-[9rem] px-2 text-xs">{t("sources.colPlatforms")}</TableHead>
                     <TableHead className="h-8 w-14 px-2 text-xs">{t("sources.colEnabled")}</TableHead>
                     <TableHead className="h-8 w-10 px-1.5" />

@@ -84,7 +84,7 @@ export function Library() {
         <PlatformTabs value={source} onChange={selectSource} />
 
         {/* Board selector — match HotPlaylists category chips */}
-        <div className="flex gap-1.5 flex-wrap">
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
           {boards.map((b) => {
             const active = boardId === b.id
             return (

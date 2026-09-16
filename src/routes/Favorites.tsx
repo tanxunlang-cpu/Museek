@@ -258,26 +258,28 @@ export function Favorites() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-border flex items-center gap-3">
-        <Heart size={20} className="text-red-500 fill-red-500 shrink-0" />
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold leading-tight">
-            {t("favorites.title")}
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {t("favorites.summary", {
-              songs: favorites.length,
-              playlists: favoritePlaylistsOnly.length,
-              albums: favoriteAlbumsOnly.length,
-            })}
-          </p>
+      <div className="p-3 sm:p-4 border-b border-border flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Heart size={20} className="text-red-500 fill-red-500 shrink-0" />
+          <div className="min-w-0">
+            <h2 className="text-base sm:text-lg font-semibold leading-tight">
+              {t("favorites.title")}
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+              {t("favorites.summary", {
+                songs: favorites.length,
+                playlists: favoritePlaylistsOnly.length,
+                albums: favoriteAlbumsOnly.length,
+              })}
+            </p>
+          </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap sm:ml-auto">
           {isSongs && favorites.length > 0 && !editing && (
             <Button
               variant="secondary"
               size="sm"
-              className="h-8"
+              className="h-8 text-xs sm:text-sm"
               onClick={() => playAll(displayedSongs)}
             >
               <Play
@@ -289,13 +291,13 @@ export function Favorites() {
               {t("favorites.playAll")}
             </Button>
           )}
-          <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-1">
+          <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-1 shrink-0">
             {(["songs", "playlists", "albums"] as const).map((id) => (
               <button
                 key={id}
                 onClick={() => switchTab(id)}
                 className={cn(
-                  "px-3 py-1 rounded-full text-sm font-medium transition-colors",
+                  "px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium transition-colors shrink-0 whitespace-nowrap",
                   tab === id
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",

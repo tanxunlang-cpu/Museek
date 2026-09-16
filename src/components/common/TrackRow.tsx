@@ -72,8 +72,7 @@ export const TrackRow = memo(function TrackRow({
         className,
         selectable && selected && "bg-primary/10",
       )}
-      onClick={selectable ? onToggleSelect : undefined}
-      onDoubleClick={selectable ? undefined : () => play(song)}
+      onClick={selectable ? onToggleSelect : () => play(song)}
     >
       {selectable && (
         <span
@@ -136,7 +135,7 @@ export const TrackRow = memo(function TrackRow({
 
       {showPlatform && <PlatformBadge source={song.source} />}
 
-      <span className="text-xs text-muted-foreground w-14 shrink-0 tabular-nums text-center">
+      <span className="text-xs text-muted-foreground w-14 shrink-0 tabular-nums text-center hidden sm:inline-block">
         {song.interval}
       </span>
 
@@ -152,7 +151,7 @@ export const TrackRow = memo(function TrackRow({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 opacity-0 group-hover:opacity-100 icon-hover-plus"
+            className="h-8 w-8 opacity-70 md:opacity-0 md:group-hover:opacity-100 icon-hover-plus"
             onClick={(e) => {
               e.stopPropagation();
               addToQueue([song]);
@@ -170,7 +169,7 @@ export const TrackRow = memo(function TrackRow({
                 size="icon"
                 className={cn(
                   "h-8 w-8 icon-hover-heart",
-                  fav ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                  fav ? "opacity-100" : "opacity-70 md:opacity-0 md:group-hover:opacity-100",
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -195,7 +194,7 @@ export const TrackRow = memo(function TrackRow({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 icon-hover-download"
+                    className="h-8 w-8 opacity-70 md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100 icon-hover-download"
                     onClick={(e) => e.stopPropagation()}
                     title={t("common.download")}
                   >

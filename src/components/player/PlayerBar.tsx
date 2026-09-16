@@ -85,17 +85,23 @@ export function PlayerBar() {
       {/* Full-width progress bar across the top — modern player layout */}
       <ProgressSlider />
 
-      <div className="flex items-center px-4 pb-3.5 gap-4">
+      <div className="flex items-center px-2.5 sm:px-4 pb-2 sm:pb-3.5 gap-2 sm:gap-4">
         {/* Left: Song info */}
-        <div className="flex items-center gap-3.5 w-72 shrink-0">
+        <div
+          className="flex items-center gap-2 sm:gap-3.5 flex-1 min-w-0 md:w-72 md:shrink-0 md:flex-initial cursor-pointer select-none"
+          onClick={() => currentSong && setShowLyrics(true)}
+        >
           {coverSrc ? (
             <ShortcutTooltip label={t("player.lyrics")} action="lyrics">
             <button
               type="button"
-              onClick={() => !loading && hasLyrics && setShowLyrics(true)}
-              disabled={loading || !hasLyrics}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!loading) setShowLyrics(true);
+              }}
+              disabled={loading}
               // Inner clips overlay so it never paints past rounded corners.
-              className="group relative h-12 w-12 shrink-0 transition-transform duration-150 ease-out active:scale-[0.96] disabled:pointer-events-none"
+              className="group relative h-10 w-10 sm:h-12 sm:w-12 shrink-0 transition-transform duration-150 ease-out active:scale-[0.96] disabled:pointer-events-none"
             >
               <span className="absolute inset-0 overflow-hidden rounded-xl shadow-[var(--shadow-border)]">
                 <img
@@ -108,7 +114,7 @@ export function PlayerBar() {
                 />
                 {loading ? (
                   <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45">
-                    <Loader2 size={18} className="animate-spin text-white" />
+                    <Loader2 size={16} className="animate-spin text-white" />
                   </span>
                 ) : (
                   <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 opacity-0 transition-opacity duration-200 group-hover:opacity-100 icon-hover-maximize">
@@ -119,46 +125,46 @@ export function PlayerBar() {
             </button>
             </ShortcutTooltip>
           ) : (
-            <div className="relative h-12 w-12 rounded-xl bg-muted flex items-center justify-center overflow-hidden shrink-0 shadow-[var(--shadow-border)]">
+            <div className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-muted flex items-center justify-center overflow-hidden shrink-0 shadow-[var(--shadow-border)]">
               {loading ? (
                 <Loader2
-                  size={18}
+                  size={16}
                   className="animate-spin text-muted-foreground"
                 />
               ) : (
-                <Music size={20} className="text-muted-foreground" />
+                <Music size={18} className="text-muted-foreground" />
               )}
             </div>
           )}
           {currentSong ? (
-            <div className="min-w-0 space-y-1">
-              <div className="flex items-center gap-2 min-w-0">
+            <div className="min-w-0 flex-1 space-y-0.5 sm:space-y-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                 <p
-                  className="text-sm font-semibold tracking-tight truncate"
+                  className="text-xs sm:text-sm font-semibold tracking-tight truncate"
                   title={currentSong.name}
                 >
                   {currentSong.name}
                 </p>
-                <PlatformBadge source={currentSong.source} />
+                <PlatformBadge source={currentSong.source} className="hidden sm:inline-flex" />
               </div>
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                 <p
-                  className="text-xs text-muted-foreground truncate min-w-0"
+                  className="text-[11px] sm:text-xs text-muted-foreground truncate min-w-0"
                   title={currentSong.singer}
                 >
                   {currentSong.singer}
                 </p>
-                <QualityBadge quality={currentQuality} />
+                <QualityBadge quality={currentQuality} className="hidden sm:inline-flex" />
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">{t("player.empty")}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">{t("player.empty")}</p>
           )}
         </div>
 
         {/* Center: Controls */}
-        <div className="flex-1 flex justify-center">
-          <Controls />
+        <div className="flex shrink-0 justify-center">
+          <Controls showSecondary={false} />
         </div>
 
         {/* Right: Volume + Download + Lyrics + Queue + Mini */}
@@ -200,20 +206,22 @@ export function PlayerBar() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <ShortcutTooltip label={t("player.lyrics")} action="lyrics">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-9 w-9 shrink-0 icon-hover-mic",
-                showLyrics && "text-primary",
-              )}
-              onClick={() => setShowLyrics(!showLyrics)}
-              disabled={!currentSong || !hasLyrics}
-            >
-              <MicVocal size={16} />
-            </Button>
-          </ShortcutTooltip>
+          <div className="hidden sm:flex">
+            <ShortcutTooltip label={t("player.lyrics")} action="lyrics">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-9 w-9 shrink-0 icon-hover-mic",
+                  showLyrics && "text-primary",
+                )}
+                onClick={() => setShowLyrics(!showLyrics)}
+                disabled={!currentSong || !hasLyrics}
+              >
+                <MicVocal size={16} />
+              </Button>
+            </ShortcutTooltip>
+          </div>
           <div className="hidden md:flex">
             <ShortcutTooltip
               label={t(

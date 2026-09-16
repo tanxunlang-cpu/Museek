@@ -39,7 +39,7 @@ export function PlatformTabs({
 }) {
   const t = useT()
   return (
-    <div className={cn("inline-flex items-center gap-0.5 rounded-2xl bg-muted/60 p-1 shadow-[var(--shadow-border)]", className)}>
+    <div className={cn("inline-flex items-center gap-0.5 rounded-2xl bg-muted/60 p-1 shadow-[var(--shadow-border)] max-w-full overflow-x-auto no-scrollbar shrink-0", className)}>
       {PLATFORM_ORDER.map((s) => {
         const active = value === s
         return (
@@ -47,7 +47,7 @@ export function PlatformTabs({
             key={s}
             onClick={() => onChange(s)}
             className={cn(
-              "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium",
+              "flex items-center gap-1.5 rounded-xl px-2.5 sm:px-3 py-1.5 text-xs font-medium shrink-0 whitespace-nowrap",
               "transition-[color,background-color,box-shadow,transform] duration-200 ease-out",
               "active:scale-[0.97]",
               active
@@ -56,7 +56,7 @@ export function PlatformTabs({
             )}
           >
             <span
-              className="h-1.5 w-1.5 rounded-full transition-transform"
+              className="h-1.5 w-1.5 rounded-full transition-transform shrink-0"
               style={{ backgroundColor: BRAND[s], transform: active ? "scale(1.3)" : "scale(1)" }}
             />
             {t(LABEL[s])}

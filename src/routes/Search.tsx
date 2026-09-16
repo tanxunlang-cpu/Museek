@@ -274,13 +274,13 @@ export function Search() {
 
         {/* Search scope (songs / albums / playlists) + platform selector */}
         <div className="mt-3 flex items-center gap-2 flex-wrap">
-          <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-1">
+          <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-1 shrink-0">
             {SCOPES.map((s) => (
               <button
                 key={s}
                 onClick={() => setScope(s)}
                 className={cn(
-                  "px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                  "px-3 py-1 rounded-full text-xs font-medium transition-colors shrink-0 whitespace-nowrap",
                   scope === s
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",

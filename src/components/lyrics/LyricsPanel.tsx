@@ -7,6 +7,9 @@ import {
 } from "react";
 import {
   X,
+  ChevronDown,
+  Disc3,
+  List,
   Loader2,
   Music,
   Captions,
@@ -97,6 +100,7 @@ export function LyricsPanel() {
   const [entered, setEntered] = useState(false);
   const [immersive, setImmersive] = useState(false);
   const [lyricsOnly, setLyricsOnly] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"cover" | "lyrics">("cover");
   const [commentsOpen, setCommentsOpen] = useState(false);
   /** Cover is hidden in either exclusive mode: lyrics-only or comments. */
   const hideCover = lyricsOnly || commentsOpen;
@@ -575,8 +579,58 @@ export function LyricsPanel() {
       />
       <div className="absolute inset-0 bg-background/65" />
 
+      {/* Mobile Top Header */}
+      <div className="flex md:hidden items-center justify-between px-3 py-2 pt-[calc(0.5rem+env(safe-area-inset-top))] border-b border-border/20 z-20 shrink-0 select-none">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 text-muted-foreground/80 hover:text-foreground"
+          onClick={closeLyrics}
+        >
+          <ChevronDown size={22} />
+        </Button>
+
+        <div className="flex flex-col items-center min-w-0 max-w-[50vw]">
+          <p className="text-sm font-semibold truncate tracking-tight text-foreground text-center" title={currentSong?.name}>
+            {currentSong?.name || t("lyrics.empty")}
+          </p>
+          <p className="text-xs text-muted-foreground truncate text-center" title={currentSong?.singer}>
+            {currentSong?.singer || ""}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileTab((m) => (m === "cover" ? "lyrics" : "cover"))}
+            className={cn("h-9 w-9", mobileTab === "lyrics" ? "text-primary" : "text-muted-foreground")}
+            title={mobileTab === "cover" ? t("lyrics.solo") : t("lyrics.exitSolo")}
+          >
+            {mobileTab === "cover" ? <Captions size={18} /> : <Disc3 size={18} />}
+          </Button>
+          <LyricSourceMenu
+            song={currentSong}
+            onOpenChange={onLyricSourceMenuOpenChange}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-9 w-9",
+              commentsOpen ? "text-primary" : "text-muted-foreground",
+            )}
+            onClick={toggleComments}
+            disabled={commentsDisabled}
+          >
+            <MessageCircle size={18} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Desktop Close Button */}
       <div
-        className={cn("absolute top-4 right-4", immersiveChromeClass)}
+        className={cn("hidden md:block absolute top-4 right-4", immersiveChromeClass)}
         onPointerEnter={onImmersiveChromeEnter}
         onPointerLeave={onImmersiveChromeLeave}
         onFocusCapture={onImmersiveChromeEnter}
@@ -598,9 +652,10 @@ export function LyricsPanel() {
         </Button>
       </div>
 
+      {/* Desktop Right Floating Rail */}
       <div
         className={cn(
-          "absolute right-4 top-1/2 flex -translate-y-1/2 flex-col items-center gap-1",
+          "hidden md:flex absolute right-4 top-1/2 flex -translate-y-1/2 flex-col items-center gap-1",
           immersiveChromeClass,
         )}
         onPointerEnter={onImmersiveChromeEnter}
@@ -699,17 +754,20 @@ export function LyricsPanel() {
         </ShortcutTooltip>
       </div>
 
-      <div className="relative z-10 flex h-full min-h-0">
+      <div className="relative z-10 flex flex-col md:flex-row h-full min-h-0">
         <div
           className={cn(
-            "flex shrink-0 flex-col items-center justify-center gap-6 transition-[width,opacity,transform,padding] duration-300 ease-out",
+            "flex shrink-0 flex-col items-center justify-center gap-4 md:gap-6 transition-[width,opacity,transform,padding] duration-300 ease-out",
             hideCover
               ? "pointer-events-none w-0 -translate-x-4 overflow-hidden p-0 opacity-0"
-              : "w-2/5 overflow-visible p-12",
+              : "md:w-2/5 md:overflow-visible md:p-12",
+            mobileTab === "cover"
+              ? "flex-1 min-h-0 w-full p-4 overflow-y-auto justify-center"
+              : "hidden md:flex",
           )}
         >
           {currentSong && (
-            <div className="text-center max-w-xs">
+            <div className="text-center max-w-xs hidden md:block">
               <p
                 className="text-2xl font-semibold truncate tracking-tight"
                 title={currentSong.name}
@@ -725,8 +783,10 @@ export function LyricsPanel() {
             </div>
           )}
           <div
+            onClick={() => setMobileTab("lyrics")}
             className={cn(
-              "lyric-cover-float w-60 shrink-0",
+              "lyric-cover-float shrink-0 cursor-pointer md:cursor-default",
+              "w-52 h-52 sm:w-60 sm:h-60 max-w-[70vw] max-h-[70vw]",
               !isPlaying && "is-paused",
             )}
           >
@@ -734,7 +794,7 @@ export function LyricsPanel() {
               autoAnimate
               paused={!isPlaying}
               followMouse={false}
-              className="h-60 w-60"
+              className="h-full w-full"
               radius={16}
               lineColor="#ffffff"
               baseColor="#9ca3af"
@@ -747,11 +807,44 @@ export function LyricsPanel() {
               {coverArt}
             </SpecularFrame>
           </div>
-          <Controls />
+
+          {/* On mobile: 2-line live lyric preview under cover */}
+          <div
+            onClick={() => setMobileTab("lyrics")}
+            className="block md:hidden text-center px-4 max-w-xs cursor-pointer select-none"
+          >
+            {lyricLines[currentLyricIndex] ? (
+              <div className="space-y-1">
+                <p className="text-sm sm:text-base font-medium text-primary line-clamp-1">
+                  {hasKaraokeTiming(lyricLines[currentLyricIndex]) ? (
+                    <PlaybackKaraokeText line={lyricLines[currentLyricIndex]} />
+                  ) : (
+                    lyricLines[currentLyricIndex].text
+                  )}
+                </p>
+                {lyricLines[currentLyricIndex].translation && (
+                  <p className="text-xs text-muted-foreground line-clamp-1">
+                    {lyricLines[currentLyricIndex].translation}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground/60">
+                {currentSong ? t("lyrics.tapToViewLyrics") : t("lyrics.selectSong")}
+              </p>
+            )}
+          </div>
+
+          <div className="hidden md:block">
+            <Controls />
+          </div>
         </div>
 
         <div
-          className="relative flex-1 min-h-0"
+          className={cn(
+            "relative min-h-0",
+            mobileTab === "lyrics" ? "flex-1 w-full block" : "hidden md:block md:flex-1",
+          )}
           onWheel={handleLyricWheel}
           style={{ maskImage: FADE, WebkitMaskImage: FADE }}
         >
@@ -761,20 +854,28 @@ export function LyricsPanel() {
               <p className="text-sm">{t("lyrics.loading")}</p>
             </div>
           ) : lyricLines.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-              {currentSong ? t("lyrics.empty") : t("lyrics.selectSong")}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+              <p>{currentSong ? t("lyrics.empty") : t("lyrics.selectSong")}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="md:hidden mt-2 text-xs"
+                onClick={() => setMobileTab("cover")}
+              >
+                {t("lyrics.exitSolo")}
+              </Button>
             </div>
           ) : (
             <>
               <ScrollArea ref={scrollRef} className="lyrics-scroll h-full">
                 <div
                   className={cn(
-                    "py-[42vh] text-center animate-in fade-in duration-300",
-                    hideCover ? "px-4" : "pl-4 pr-24",
+                    "py-[32vh] md:py-[42vh] text-center animate-in fade-in duration-300",
+                    hideCover ? "px-4" : "px-4 md:pl-4 md:pr-24",
                   )}
                 >
                   {!lyricsOnly && (
-                    <p className="pointer-events-none select-none py-2 font-sans text-xs font-medium leading-5 text-muted-foreground/55">
+                    <p className="pointer-events-none select-none py-2 font-sans text-xs font-medium leading-5 text-muted-foreground/55 hidden md:block">
                       {t("lyrics.fontHint", { shortcut: fontShortcut })}
                     </p>
                   )}
@@ -788,13 +889,13 @@ export function LyricsPanel() {
                         }}
                         onClick={() => seek(line.time)}
                         className={cn(
-                          "py-2.5 cursor-pointer transition-[color,font-size] duration-300 ease-out",
+                          "py-2 sm:py-2.5 cursor-pointer transition-[color,font-size] duration-300 ease-out",
                           active
                             ? "text-primary font-semibold"
                             : "text-muted-foreground/50 hover:text-muted-foreground",
                         )}
                         style={{
-                          fontSize: `${(active ? 1.4 : 0.95) * fontScale}rem`,
+                          fontSize: `${(active ? 1.3 : 0.9) * fontScale}rem`,
                         }}
                       >
                         <p className="transition-colors duration-300 ease-out motion-reduce:transition-none">
@@ -808,7 +909,7 @@ export function LyricsPanel() {
                           <p
                             className="mt-1 opacity-80"
                             style={{
-                              fontSize: `${(active ? 1 : 0.85) * fontScale}rem`,
+                              fontSize: `${(active ? 0.95 : 0.8) * fontScale}rem`,
                             }}
                           >
                             <span className="block transition-colors duration-300 ease-out motion-reduce:transition-none">
@@ -820,7 +921,7 @@ export function LyricsPanel() {
                     );
                   })}
                   {!lyricsOnly && (
-                    <p className="pointer-events-none select-none py-2 font-sans text-xs font-medium leading-5 text-muted-foreground/55">
+                    <p className="pointer-events-none select-none py-2 font-sans text-xs font-medium leading-5 text-muted-foreground/55 hidden md:block">
                       {t("lyrics.fontHint", { shortcut: fontShortcut })}
                     </p>
                   )}
@@ -839,7 +940,30 @@ export function LyricsPanel() {
         </div>
         <CommentsPanel song={currentSong} open={commentsOpen} />
       </div>
-      <ProgressSlider flush />
+
+      {/* Mobile Bottom Bar: Seek slider + Full controls row */}
+      <div className="flex md:hidden flex-col w-full px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1 gap-1.5 z-20 shrink-0 bg-background/40 backdrop-blur-md">
+        <div className="w-full">
+          <ProgressSlider />
+        </div>
+        <div className="flex items-center justify-between w-full px-1">
+          <Controls showSecondary={true} className="justify-around flex-1" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0 text-muted-foreground ml-1"
+            onClick={() => usePlayerStore.getState().setShowQueue(true)}
+            title={t("player.queue")}
+          >
+            <List size={18} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Desktop Bottom Slider */}
+      <div className="hidden md:block">
+        <ProgressSlider flush />
+      </div>
       <div
         data-tauri-drag-region
         className={cn(
