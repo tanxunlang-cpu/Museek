@@ -6,12 +6,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { initTheme } from "@/stores/themeStore";
 import { initFonts } from "@/stores/fontStore";
 import { installLockdown } from "@/lib/lockdown";
+import { isMobile } from "@/lib/os";
 import "./index.css";
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 let isDesktopLyricsWindow = false;
-if (isTauri) {
+if (isTauri && !isMobile()) {
   try {
     isDesktopLyricsWindow = getCurrentWindow().label === "lyrics";
   } catch {

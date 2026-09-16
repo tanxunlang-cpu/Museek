@@ -27,6 +27,7 @@ import {
   type DesktopLyricsInteractionMode,
   type DesktopLyricsSnapshot,
 } from "@/lib/desktopLyricsProtocol";
+import { isMobile } from "@/lib/os";
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -37,6 +38,7 @@ export function canToggleDesktopLyrics(opts: {
   hasLyrics: boolean;
   visible: boolean;
 }): boolean {
+  if (isMobile()) return false;
   if (opts.visible) return true;
   return opts.hasSong && opts.hasLyrics;
 }
@@ -233,7 +235,7 @@ export async function hideDesktopLyrics(): Promise<void> {
 }
 
 export function startDesktopLyricsBridge(): () => void {
-  if (!isTauri || bridgeStarted) return () => {};
+  if (!isTauri || isMobile() || bridgeStarted) return () => {};
   bridgeStarted = true;
   lastSnapshotKey = null;
   lastAppearanceKey = null;
