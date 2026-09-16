@@ -123,21 +123,22 @@ if (fs.existsSync(projectYmlPath)) {
   }
 }
 
-// 4. Patch project.pbxproj files directly
+// 4. Patch project.pbxproj files directly with lint validation
 const pbxFiles = findFiles(appleDir, "project.pbxproj");
 console.log(`[patch-ios] Found ${pbxFiles.length} project.pbxproj file(s).`);
 
 for (const pbxPath of pbxFiles) {
-  let pbx = fs.readFileSync(pbxPath, "utf-8");
+  const original = fs.readFileSync(pbxPath, "utf-8");
+  let pbx = original;
   let pbxModified = false;
 
   // Inject PATH into shellScript phases if not present
-  if (pbx.includes("shellScript = ") && !pbx.includes('export PATH=\\"$HOME/.cargo/bin')) {
+  if (pbx.includes("shellScript = ") && !pbx.includes('.cargo/bin')) {
     pbx = pbx.replace(
-      /shellScript = "(.*?)"/g,
+      /shellScript = "(.*?)";/g,
       (match, scriptContent) => {
         if (!scriptContent.includes(".cargo/bin")) {
-          return `shellScript = "export PATH=\\"$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\"\\n${scriptContent}"`;
+          return `shellScript = "export PATH=\\"$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\"\\n${scriptContent}";`;
         }
         return match;
       }
@@ -160,7 +161,13 @@ for (const pbxPath of pbxFiles) {
 
   if (pbxModified) {
     fs.writeFileSync(pbxPath, pbx, "utf-8");
-    console.log(`[patch-ios] Saved ${pbxPath}`);
+    try {
+      execSync(`plutil -lint "${pbxPath}"`, { stdio: "ignore" });
+      console.log(`[patch-ios] Verified ${pbxPath} syntax with plutil: OK`);
+    } catch (e) {
+      console.warn(`[patch-ios] Warning: plutil lint failed on modified ${pbxPath}, reverting to original...`);
+      fs.writeFileSync(pbxPath, original, "utf-8");
+    }
   }
 }
 

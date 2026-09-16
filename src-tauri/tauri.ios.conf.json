@@ -10,15 +10,7 @@
   },
   "bundle": {
     "iOS": {
-      "infoPlist": {
-        "CFBundleDisplayName": "Museek",
-        "UIBackgroundModes": [
-          "audio"
-        ],
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        }
-      }
+      "infoPlist": "Info.ios.plist"
     }
   }
 }
