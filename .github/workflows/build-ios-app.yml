@@ -63,10 +63,16 @@ jobs:
         run: pnpm build
 
       - name: Archive iOS Application
+        env:
+          CONFIGURATION: release
         run: |
           set -e
           XCODEPROJ=$(find src-tauri/gen/apple -maxdepth 1 -name "*.xcodeproj" | head -n 1)
           echo "Found Xcode project: $XCODEPROJ"
+
+          # Fallback server-addr file in case any phase checks it
+          echo "http://localhost:1425" > "${TMPDIR}com.museek.app-server-addr" 2>/dev/null || true
+          echo "http://localhost:1425" > /tmp/com.museek.app-server-addr 2>/dev/null || true
 
           # Print available schemes and SDKs
           xcodebuild -list -project "$XCODEPROJ"
@@ -80,13 +86,13 @@ jobs:
 
           mkdir -p src-tauri/gen/apple/build
 
-          echo "Running xcodebuild archive..."
+          echo "Running xcodebuild archive with release configuration..."
           xcodebuild archive \
             -project "$XCODEPROJ" \
             -scheme "$SCHEME" \
             -destination "generic/platform=iOS" \
             -archivePath "$PWD/src-tauri/gen/apple/build/Museek.xcarchive" \
-            -configuration Release \
+            -configuration release \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
@@ -100,7 +106,7 @@ jobs:
               -project "$XCODEPROJ" \
               -scheme "$SCHEME" \
               -destination "generic/platform=iOS" \
-              -configuration Release \
+              -configuration release \
               -derivedDataPath "$PWD/src-tauri/gen/apple/build/DerivedData" \
               CODE_SIGN_STYLE=Manual \
               CODE_SIGN_IDENTITY="" \

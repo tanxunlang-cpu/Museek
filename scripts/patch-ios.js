@@ -140,19 +140,19 @@ for (const pbxPath of pbxFiles) {
     console.log(`[patch-ios] Adjusted objectVersion from 77 to 60 in ${pbxPath}`);
   }
 
-  // Inject PATH into shellScript phases if not present
+  // Inject PATH and CONFIGURATION fallback into shellScript phases if not present
   if (pbx.includes("shellScript = ") && !pbx.includes('.cargo/bin')) {
     pbx = pbx.replace(
       /shellScript = "(.*?)";/g,
       (match, scriptContent) => {
         if (!scriptContent.includes(".cargo/bin")) {
-          return `shellScript = "export PATH=\\"$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\"\\n${scriptContent}";`;
+          return `shellScript = "export PATH=\\"$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\"\\nexport CONFIGURATION=\\"\\\${CONFIGURATION:-release}\\"\\n${scriptContent}";`;
         }
         return match;
       }
     );
     pbxModified = true;
-    console.log(`[patch-ios] Injected PATH into shellScript in ${pbxPath}`);
+    console.log(`[patch-ios] Injected PATH and CONFIGURATION into shellScript in ${pbxPath}`);
   }
 
   // Disable code signing requirements
