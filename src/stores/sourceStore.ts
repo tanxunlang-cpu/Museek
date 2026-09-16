@@ -7,6 +7,7 @@ import {
   loadSourceProbeResults,
   saveSourceProbeResults,
 } from "@/lib/sources";
+import { getBuiltinSourceScripts } from "@/lib/sources/builtinSources";
 import { t } from "@/lib/i18n";
 import type { SourceScript } from "@/types/source";
 import type { SourceProbeResult } from "@/lib/sources/probe";
@@ -168,10 +169,28 @@ export const useSourceStore = create<SourceState>((set, get) => ({
   },
 
   async loadFromDisk() {
-    const [scripts, storedProbe] = await Promise.all([
+    const [diskScripts, storedProbe] = await Promise.all([
       loadSourceScripts(),
       loadSourceProbeResults(),
     ]);
+    const builtinScripts = getBuiltinSourceScripts();
+    let scripts = diskScripts;
+    if (!diskScripts || diskScripts.length === 0) {
+      scripts = builtinScripts;
+      saveSourceScripts(scripts);
+    } else {
+      const existingUrlsOrIds = new Set(scripts.map((s) => s.url || s.id));
+      const missingBuiltins = builtinScripts.filter(
+        (b) => !existingUrlsOrIds.has(b.url) && !existingUrlsOrIds.has(b.id),
+      );
+      if (missingBuiltins.length > 0) {
+        scripts = [
+          ...scripts,
+          ...missingBuiltins.map((b) => ({ ...b, enabled: false })),
+        ];
+        saveSourceScripts(scripts);
+      }
+    }
     const known = new Set(scripts.map((s) => s.id));
     const probeResults = Object.fromEntries(
       Object.entries(storedProbe).filter(([id]) => known.has(id)),

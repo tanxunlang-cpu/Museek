@@ -12,7 +12,9 @@ use souvlaki::{
 use std::io::Cursor;
 use std::sync::Mutex;
 use std::time::Instant;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 use tauri_plugin_fs::FsExt;
@@ -396,6 +398,7 @@ fn media_update(
         #[cfg(target_os = "macos")]
         set_macos_dock_progress(&handle, position, duration, !title.trim().is_empty());
         // Keep the tray tooltip in sync with Now Playing (when the tray is shown).
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if let Some(tray) = handle.tray_by_id("main-tray") {
             let tip = if title.trim().is_empty() {
                 "Museek".to_string()
@@ -525,12 +528,17 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn note_hidden_to_tray(mark: tauri::State<'_, TrayHideAt>) {
     if let Ok(mut slot) = mark.0.lock() {
         *slot = Some(Instant::now());
     }
 }
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+fn note_hidden_to_tray() {}
 
 /// Login-item / silent-start flags resolved once in setup.
 struct LaunchFlags {
@@ -595,8 +603,10 @@ fn show_main(app: &tauri::AppHandle) {
         }
     }
     if let Some(w) = app.get_webview_window("main") {
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let _ = w.set_skip_taskbar(false);
         let _ = w.show();
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let _ = w.unminimize();
         let _ = w.set_focus();
         #[cfg(target_os = "macos")]
@@ -609,6 +619,7 @@ fn show_main(app: &tauri::AppHandle) {
             force_foreground_hwnd(hwnd.0 as *mut std::ffi::c_void);
         }
         // Fallback: flash the taskbar if focus still didn't stick.
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let _ = w.request_user_attention(Some(tauri::UserAttentionType::Informational));
     }
 }
@@ -859,6 +870,7 @@ fn take_opened_unsupported_files(app: tauri::AppHandle) -> Vec<String> {
         .unwrap_or_default()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
     let prev_item = MenuItem::with_id(app, "prev", "上一首", true, None::<&str>)?;
     let toggle_item = MenuItem::with_id(app, "toggle", "播放 / 暂停", true, None::<&str>)?;
@@ -915,7 +927,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
     {
         builder = builder.icon(macos_fallback_tray_icon()?);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(any(target_os = "android", target_os = "ios"))))]
     {
         if let Some(icon) = tray_mark_from_cache(app) {
             builder = builder.icon(icon);
@@ -931,10 +943,10 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
 }
 
 /// Last tray PNG painted by the frontend from the active theme palette.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(any(target_os = "android", target_os = "ios"))))]
 struct TrayMarkCache(Mutex<Option<Vec<u8>>>);
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(any(target_os = "android", target_os = "ios"))))]
 fn tray_mark_from_cache(app: &tauri::AppHandle) -> Option<tauri::image::Image<'static>> {
     let state = app.try_state::<TrayMarkCache>()?;
     let guard = state.0.lock().ok()?;
@@ -942,6 +954,7 @@ fn tray_mark_from_cache(app: &tauri::AppHandle) -> Option<tauri::image::Image<'s
     tauri::image::Image::from_bytes(bytes).ok()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn set_tray_mark_icon(app: tauri::AppHandle, png: Vec<u8>) -> Result<(), String> {
     // macOS uses the bundled light/dark logo selected from the native system
@@ -968,6 +981,12 @@ fn set_tray_mark_icon(app: tauri::AppHandle, png: Vec<u8>) -> Result<(), String>
     }
 }
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+fn set_tray_mark_icon(_app: tauri::AppHandle, _png: Vec<u8>) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn macos_fallback_tray_icon() -> tauri::Result<tauri::image::Image<'static>> {
     let bytes = include_bytes!("../icons/tray-light@2x.png");
@@ -976,6 +995,7 @@ fn macos_fallback_tray_icon() -> tauri::Result<tauri::image::Image<'static>> {
 
 // Show/hide the tray icon to match the "hide to tray" close-behavior setting.
 // Tauri tracks the icon by id, so this is idempotent.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn set_tray_visible(app: tauri::AppHandle, visible: bool) {
     if visible {
@@ -986,6 +1006,10 @@ fn set_tray_visible(app: tauri::AppHandle, visible: bool) {
         let _ = app.remove_tray_by_id("main-tray");
     }
 }
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[tauri::command]
+fn set_tray_visible(_app: tauri::AppHandle, _visible: bool) {}
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1524,13 +1548,18 @@ pub fn run() {
     }
 
     let builder = builder
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             // Marks login-item launches so the frontend can optionally stay in tray.
             Some(vec!["--autostart"]),
-        ))
+        ));
+
+    let builder = builder
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1541,7 +1570,7 @@ pub fn run() {
         .manage(PendingUnsupportedOpens(Mutex::new(Vec::new())))
         .manage(TrayHideAt(Mutex::new(None)));
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(any(target_os = "android", target_os = "ios"))))]
     let builder = builder.manage(TrayMarkCache(Mutex::new(None)));
 
     let app = builder
@@ -1622,7 +1651,12 @@ pub fn run() {
                 // decorations:true only so macOS Overlay traffic lights exist).
                 // Must run while still hidden (visible:false) so Windows never
                 // flashes the native title bar.
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                {
+                    let _ = window.show();
+                }
+
+                #[cfg(all(not(target_os = "macos"), not(any(target_os = "android", target_os = "ios"))))]
                 {
                     let _ = window.set_decorations(false);
                 }
@@ -1635,7 +1669,7 @@ pub fn run() {
                 // Must hop back to the UI thread: Tao window methods are
                 // event-loop-bound, and a worker-thread show() on Windows
                 // hitches (or crashes) a few seconds after launch.
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(all(not(target_os = "macos"), not(any(target_os = "android", target_os = "ios"))))]
                 if !start_hidden {
                     let app = app.handle().clone();
                     std::thread::spawn(move || {

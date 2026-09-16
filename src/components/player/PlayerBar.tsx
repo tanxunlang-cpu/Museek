@@ -162,38 +162,44 @@ export function PlayerBar() {
         </div>
 
         {/* Right: Volume + Download + Lyrics + Queue + Mini */}
-        <div className="flex items-center gap-1 w-80 justify-end shrink-0">
-          <VolumeControl />
-          <DownloadSongButton song={currentSong} className="h-9 w-9" />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0 icon-hover-search"
-                disabled={!currentSong}
-                title={t("player.searchOther")}
-              >
-                <Search size={16} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" className="w-48">
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                {t("player.searchOther")}
-              </DropdownMenuLabel>
-              {PLATFORM_ORDER.filter((s) => s !== currentSong?.source).map(
-                (s) => (
-                  <DropdownMenuItem key={s} onClick={() => searchOther(s)}>
-                    <span
-                      className="h-2 w-2 rounded-full mr-2 shrink-0"
-                      style={{ backgroundColor: PLATFORM_BRAND[s] }}
-                    />
-                    {t(`platform.${s}`)}
-                  </DropdownMenuItem>
-                ),
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        <div className="flex items-center gap-0.5 md:gap-1 w-auto md:w-80 justify-end shrink-0">
+          <div className="hidden md:flex">
+            <VolumeControl />
+          </div>
+          <div className="hidden sm:flex">
+            <DownloadSongButton song={currentSong} className="h-9 w-9" />
+          </div>
+          <div className="hidden sm:flex">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 icon-hover-search"
+                  disabled={!currentSong}
+                  title={t("player.searchOther")}
+                >
+                  <Search size={16} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top" className="w-48">
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  {t("player.searchOther")}
+                </DropdownMenuLabel>
+                {PLATFORM_ORDER.filter((s) => s !== currentSong?.source).map(
+                  (s) => (
+                    <DropdownMenuItem key={s} onClick={() => searchOther(s)}>
+                      <span
+                        className="h-2 w-2 rounded-full mr-2 shrink-0"
+                        style={{ backgroundColor: PLATFORM_BRAND[s] }}
+                      />
+                      {t(`platform.${s}`)}
+                    </DropdownMenuItem>
+                  ),
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <ShortcutTooltip label={t("player.lyrics")} action="lyrics">
             <Button
               variant="ghost"
@@ -208,35 +214,37 @@ export function PlayerBar() {
               <MicVocal size={16} />
             </Button>
           </ShortcutTooltip>
-          <ShortcutTooltip
-            label={t(
-              desktopLyricsVisible
-                ? "player.desktopLyricsClose"
-                : "player.desktopLyrics",
-            )}
-            action="desktopLyrics"
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-9 w-9 shrink-0 icon-hover-captions",
-                desktopLyricsVisible && "text-primary",
+          <div className="hidden md:flex">
+            <ShortcutTooltip
+              label={t(
+                desktopLyricsVisible
+                  ? "player.desktopLyricsClose"
+                  : "player.desktopLyrics",
               )}
-              onClick={() =>
-                void (desktopLyricsVisible
-                  ? hideDesktopLyrics()
-                  : openDesktopLyrics())
-              }
-              disabled={desktopLyricsControlsDisabled}
+              action="desktopLyrics"
             >
-              {desktopLyricsVisible ? (
-                <CaptionsOff size={16} />
-              ) : (
-                <Captions size={16} />
-              )}
-            </Button>
-          </ShortcutTooltip>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-9 w-9 shrink-0 icon-hover-captions",
+                  desktopLyricsVisible && "text-primary",
+                )}
+                onClick={() =>
+                  void (desktopLyricsVisible
+                    ? hideDesktopLyrics()
+                    : openDesktopLyrics())
+                }
+                disabled={desktopLyricsControlsDisabled}
+              >
+                {desktopLyricsVisible ? (
+                  <CaptionsOff size={16} />
+                ) : (
+                  <Captions size={16} />
+                )}
+              </Button>
+            </ShortcutTooltip>
+          </div>
           <Button
             variant="ghost"
             size="icon"
@@ -250,17 +258,19 @@ export function PlayerBar() {
           >
             <List size={16} />
           </Button>
-          <ShortcutTooltip label={t("player.miniMode")} action="mini">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 shrink-0 icon-hover-pip"
-              onClick={() => void enterMiniPlayer()}
-              disabled={!currentSong}
-            >
-              <PictureInPicture2 size={16} />
-            </Button>
-          </ShortcutTooltip>
+          <div className="hidden md:flex">
+            <ShortcutTooltip label={t("player.miniMode")} action="mini">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 icon-hover-pip"
+                onClick={() => void enterMiniPlayer()}
+                disabled={!currentSong}
+              >
+                <PictureInPicture2 size={16} />
+              </Button>
+            </ShortcutTooltip>
+          </div>
         </div>
       </div>
     </footer>

@@ -24,7 +24,7 @@ export function WindowControls() {
     "relative inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-150 ease-out active:scale-[0.96]"
 
   return (
-    <div className="flex items-center">
+    <div className="hidden md:flex items-center">
       <button
         className={cn(base, "hover:bg-accent hover:text-foreground")}
         title={t("window.minimize")}

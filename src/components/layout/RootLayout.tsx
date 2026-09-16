@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { Outlet } from "react-router-dom"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
+import { MobileNav } from "./MobileNav"
 import { PlayerBar } from "@/components/player/PlayerBar"
 import { PlayQueue } from "@/components/queue/PlayQueue"
 import { LyricsPanel } from "@/components/lyrics/LyricsPanel"
@@ -85,6 +86,7 @@ export function RootLayout() {
               </main>
             </div>
             <PlayerBar />
+            <MobileNav />
             <PlayQueue />
             <LyricsPanel />
           </>
