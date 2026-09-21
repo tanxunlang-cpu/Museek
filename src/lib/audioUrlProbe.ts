@@ -79,10 +79,23 @@ export function isRejectableContentType(ct: string | null): boolean {
   return /json|html|javascript|\bxml\b|text\/plain/.test(c)
 }
 
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms)
+  }
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(new Error(`Timed out after ${ms}ms`)), ms)
+  return ac.signal
+}
+
 async function fetchContentLength(url: string): Promise<number | null> {
   const cdn = cdnHeadersForUrl(url)
   try {
-    const head = await httpFetch(url, { method: "HEAD", headers: cdn })
+    const head = await httpFetch(url, {
+      method: "HEAD",
+      headers: cdn,
+      signal: timeoutSignal(3000),
+    })
     if (head.ok) {
       if (isRejectableContentType(head.headers.get("content-type"))) return REJECT
       const len = parseInt(head.headers.get("content-length") || "", 10)
@@ -97,6 +110,7 @@ async function fetchContentLength(url: string): Promise<number | null> {
     const ranged = await httpFetch(url, {
       method: "GET",
       headers: { ...cdn, Range: "bytes=0-63" },
+      signal: timeoutSignal(3000),
     })
     const ct = ranged.headers.get("content-type")
     if (isRejectableContentType(ct)) return REJECT

@@ -26,6 +26,24 @@ initFonts(!isDesktopLyricsWindow);
 // Disable right-click everywhere (and devtools shortcuts in production).
 installLockdown();
 
+// On mobile, window dragging is neither applicable nor desired. Tauri's native
+// drag listener intercepts touch/pointer events on any [data-tauri-drag-region]
+// elements and their children, swallowing clicks and touches. Strip them dynamically.
+if (isMobile()) {
+  const cleanDragRegions = () => {
+    document.querySelectorAll("[data-tauri-drag-region]").forEach((el) => {
+      el.removeAttribute("data-tauri-drag-region");
+    });
+  };
+  cleanDragRegions();
+  new MutationObserver(cleanDragRegions).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-tauri-drag-region"],
+  });
+}
+
 async function bootstrap() {
   const Root = isDesktopLyricsWindow
     ? () => (

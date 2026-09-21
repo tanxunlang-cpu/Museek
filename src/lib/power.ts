@@ -10,15 +10,19 @@ import type { Window } from "@tauri-apps/api/window";
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 let lastSent: boolean | null = null;
+let lastAndroidSent: boolean | null = null;
 
 export function setPreventSleep(enabled: boolean): void {
   // Mobile Android native bridge: controls MusicService ForegroundService & WakeLock
-  const androidBridge = (window as unknown as { AndroidBridge?: { setPlaybackActive: (v: boolean) => void } }).AndroidBridge;
-  if (androidBridge && typeof androidBridge.setPlaybackActive === "function") {
-    try {
-      androidBridge.setPlaybackActive(enabled);
-    } catch {
-      /* ignore bridge error */
+  if (lastAndroidSent !== enabled) {
+    lastAndroidSent = enabled;
+    const androidBridge = (window as unknown as { AndroidBridge?: { setPlaybackActive: (v: boolean) => void } }).AndroidBridge;
+    if (androidBridge && typeof androidBridge.setPlaybackActive === "function") {
+      try {
+        androidBridge.setPlaybackActive(enabled);
+      } catch {
+        /* ignore bridge error */
+      }
     }
   }
 

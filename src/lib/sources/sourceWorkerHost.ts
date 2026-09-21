@@ -294,6 +294,9 @@ export class SourceWorkerHost {
   }): Promise<void> {
     const ac = new AbortController()
     this.httpAborts.set(msg.id, ac)
+    const timeout = setTimeout(() => {
+      ac.abort(new Error("Worker HTTP request timed out after 10s"))
+    }, 10_000)
     try {
       assertAllowedSourceUrl(msg.url, this.scriptId)
       const res = await httpFetch(msg.url, {
@@ -320,6 +323,7 @@ export class SourceWorkerHost {
         error: err instanceof Error ? err.message : String(err),
       })
     } finally {
+      clearTimeout(timeout)
       this.httpAborts.delete(msg.id)
     }
   }

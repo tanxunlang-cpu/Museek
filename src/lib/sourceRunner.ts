@@ -7,10 +7,11 @@ import { looksLikeRealAudio } from "@/lib/audioUrlProbe";
 import { createAsyncCache } from "@/lib/cache";
 import { getWyBuiltinMusicUrl } from "@/lib/playlists/wyUrl";
 import type { SourceScript, SourceRegistry, LxRequestPayload } from "@/types/source";
+import { isMobile } from "@/lib/os";
 import type { LyricInfo, MusicInfo, Quality } from "@/types/music";
 
-/** Parallel musicUrl probes per wave — higher so 10–20 sources don't serialize. */
-const MUSIC_URL_WAVE = 12;
+/** Parallel musicUrl probes per wave — 4 on mobile to prevent IPC starvation, 12 on desktop. */
+const MUSIC_URL_WAVE = isMobile() ? 4 : 12;
 /** Per-source musicUrl attempt timeout (scripts without their own timeout can hang). */
 const MUSIC_URL_ATTEMPT_MS = 5_000;
 /** Successful play URLs are reusable briefly (CDN links expire; keep TTL short). */

@@ -17,6 +17,7 @@ import { useT } from "@/lib/i18n";
 import { shortcutTitle, useShortcutCombo } from "@/components/ui/shortcut-tooltip";
 import { usePlaybackLyricIndex } from "@/lib/playback/clock";
 import { cn } from "@/lib/utils";
+import { isMobile } from "@/lib/os";
 import { PlaybackKaraokeText } from "@/components/lyrics/KaraokeText";
 import { LyricTransition } from "@/components/lyrics/LyricTransition";
 
@@ -37,7 +38,7 @@ function TopBarLyrics() {
   if (!enabled) {
     return (
       <div
-        data-tauri-drag-region
+        data-tauri-drag-region={isMobile() ? undefined : ""}
         className="mx-2 min-w-0 flex-1 select-none"
         aria-hidden
       />
@@ -63,7 +64,7 @@ function TopBarLyrics() {
   if (!text) {
     return (
       <div
-        data-tauri-drag-region
+        data-tauri-drag-region={isMobile() ? undefined : ""}
         className="mx-2 min-w-0 flex-1 select-none"
         aria-hidden
       />
@@ -72,7 +73,7 @@ function TopBarLyrics() {
 
   return (
     <div
-      data-tauri-drag-region
+      data-tauri-drag-region={isMobile() ? undefined : ""}
       className="mx-2 flex h-8 min-w-0 flex-1 items-center justify-center select-none"
     >
       <button
@@ -122,7 +123,7 @@ export function TopBar() {
 
   return (
     <div
-      data-tauri-drag-region
+      data-tauri-drag-region={isMobile() ? undefined : ""}
       className="h-[calc(2.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 flex items-center gap-0.5 border-b border-border/50 pl-2 pr-1"
     >
       <Button

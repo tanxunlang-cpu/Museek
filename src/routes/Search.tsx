@@ -78,6 +78,7 @@ export function Search() {
   const navigate = useNavigate();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const composingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const isPlFav = (pl: Playlist) =>
     favoritePlaylists.some(
@@ -174,17 +175,24 @@ export function Search() {
       <div className="p-4 border-b border-border">
         <form
           className="relative"
+          action="#"
           onSubmit={(e) => {
             e.preventDefault();
             runSearch(inputValue);
             setFocused(false);
+            inputRef.current?.blur();
+            (document.activeElement as HTMLElement)?.blur();
           }}
         >
+          {/* Explicit submit button first so mobile keyboard Search triggers this, not clear/history buttons */}
+          <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
           <SearchIcon
             size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10"
           />
           <Input
+            ref={inputRef}
+            type="search"
             className="pl-9 pr-9"
             placeholder={t(placeholderKey)}
             value={inputValue}
@@ -199,16 +207,20 @@ export function Search() {
             }}
             onFocus={() => setFocused(true)}
             onClick={() => setFocused(true)}
-            onBlur={() => window.setTimeout(() => setFocused(false), 150)}
+            onBlur={() => window.setTimeout(() => setFocused(false), 200)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
+                e.preventDefault();
                 runSearch(inputValue);
                 setFocused(false);
+                inputRef.current?.blur();
+                (document.activeElement as HTMLElement)?.blur();
               }
             }}
           />
           {inputValue && (
             <button
+              type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -230,6 +242,7 @@ export function Search() {
                   {t("search.history")}
                 </p>
                 <button
+                  type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => clearHistory()}
                   className="text-xs text-muted-foreground hover:text-destructive transition-colors"
@@ -244,17 +257,21 @@ export function Search() {
                     className="flex items-center rounded-full bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
                   >
                     <button
+                      type="button"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setInputValue(h);
                         setFocused(false);
                         runSearch(h);
+                        inputRef.current?.blur();
+                        (document.activeElement as HTMLElement)?.blur();
                       }}
                       className="text-xs pl-2.5 pr-1 py-1 max-w-[14rem] truncate"
                     >
                       {h}
                     </button>
                     <button
+                      type="button"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => removeHistoryItem(h)}
                       title={t("search.removeHistory")}
@@ -267,6 +284,7 @@ export function Search() {
               </div>
               {searchHistory.length > HISTORY_COLLAPSED && (
                 <button
+                  type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setExpanded((v) => !v)}
                   className="mt-2 w-full text-xs text-muted-foreground hover:text-foreground py-0.5"

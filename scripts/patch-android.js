@@ -75,6 +75,10 @@ if (!content.includes("android:name=\".MusicService\"")) {
   content = content.replace("</application>", `${serviceDeclaration}\n    </application>`);
 }
 
+if (!content.includes("android:windowSoftInputMode=")) {
+  content = content.replace("<activity", '<activity\n            android:windowSoftInputMode="adjustResize"');
+}
+
 fs.writeFileSync(manifestPath, content, "utf-8");
 console.log("[patch-android] Successfully patched AndroidManifest.xml!");
 
@@ -143,8 +147,11 @@ class MusicService : Service() {
         const val ACTION_START = "com.museek.app.ACTION_START"
         const val ACTION_STOP = "com.museek.app.ACTION_STOP"
         private var wakeLock: PowerManager.WakeLock? = null
+        @Volatile
+        private var isRunning = false
 
         fun start(context: Context) {
+            if (isRunning) return
             try {
                 val intent = Intent(context, MusicService::class.java).apply {
                     action = ACTION_START
@@ -154,17 +161,20 @@ class MusicService : Service() {
                 } else {
                     context.startService(intent)
                 }
+                isRunning = true
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
         fun stop(context: Context) {
+            if (!isRunning) return
             try {
                 val intent = Intent(context, MusicService::class.java).apply {
                     action = ACTION_STOP
                 }
                 context.startService(intent)
+                isRunning = false
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -321,6 +331,7 @@ class AndroidBridge(private val context: Context) {
 
 class MainActivity : TauriActivity() {
     private var webView: WebView? = null
+    private var bridgeAdded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -362,7 +373,10 @@ class MainActivity : TauriActivity() {
                 allowContentAccess = true
                 javaScriptEnabled = true
             }
-            view.addJavascriptInterface(AndroidBridge(this), "AndroidBridge")
+            if (!bridgeAdded) {
+                view.addJavascriptInterface(AndroidBridge(this), "AndroidBridge")
+                bridgeAdded = true
+            }
         } else if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
                 configureViews(view.getChildAt(i))
