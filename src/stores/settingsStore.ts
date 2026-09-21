@@ -20,6 +20,9 @@ import {
 import { parseLyricColor } from "@/lib/lyricColor";
 import type { LocalNameMode, OnlineSource, Quality } from "@/types/music";
 
+const isTauri =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 export type NamingScheme = "singer-name" | "name-singer" | "name";
 export type FavoritesSort = "added" | "name";
 export type LocalSort = FavoritesSort;
