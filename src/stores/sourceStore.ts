@@ -215,16 +215,17 @@ export const useSourceStore = create<SourceState>((set, get) => ({
     }
     set({ scripts, probeResults });
     sourceRunner.setScripts(scripts);
-    // Load every enabled source (each in its own Worker). Tolerate individual
-    // init failures: a source that fails to load just won't be tried.
-    for (const script of scripts) {
-      if (!script.enabled) continue;
-      try {
-        const sources = await sourceRunner.loadScript(script);
-        if (sources) get().setScriptSources(script.id, sources);
-      } catch {
-        // skip sources that fail to load/init
-      }
-    }
+    // Load enabled sources concurrently in parallel. Tolerate individual init failures.
+    const enabledScripts = scripts.filter((s) => s.enabled);
+    await Promise.allSettled(
+      enabledScripts.map(async (script) => {
+        try {
+          const sources = await sourceRunner.loadScript(script);
+          if (sources) get().setScriptSources(script.id, sources);
+        } catch {
+          // skip sources that fail to load/init
+        }
+      }),
+    );
   },
 }));

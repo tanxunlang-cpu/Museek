@@ -26,8 +26,10 @@ let lastProgressPos = 0;
 let progressWired = false;
 
 function getBrowserMediaSession(): MediaSession | null {
-  if (!isWindows || isTauri || typeof navigator === "undefined") return null;
-  if (!("mediaSession" in navigator)) return null;
+  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return null;
+  // On desktop Windows under Tauri, Rust SMTC manages the OS media card directly;
+  // on mobile (Android/iOS) and browsers, navigator.mediaSession provides system lock-screen and notification controls.
+  if (isWindows && isTauri) return null;
   return navigator.mediaSession;
 }
 

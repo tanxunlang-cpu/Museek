@@ -12,6 +12,16 @@ const isTauri =
 let lastSent: boolean | null = null;
 
 export function setPreventSleep(enabled: boolean): void {
+  // Mobile Android native bridge: controls MusicService ForegroundService & WakeLock
+  const androidBridge = (window as unknown as { AndroidBridge?: { setPlaybackActive: (v: boolean) => void } }).AndroidBridge;
+  if (androidBridge && typeof androidBridge.setPlaybackActive === "function") {
+    try {
+      androidBridge.setPlaybackActive(enabled);
+    } catch {
+      /* ignore bridge error */
+    }
+  }
+
   if (!isTauri) return;
   if (lastSent === enabled) return;
   lastSent = enabled;

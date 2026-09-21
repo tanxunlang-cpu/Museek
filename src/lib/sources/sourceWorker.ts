@@ -151,6 +151,10 @@ function runScript(msg: Extract<HostToSourceWorker, { type: "init" }>): void {
     // eslint-disable-next-line no-new-func
     const fn = new Function(msg.rawScript)
     fn()
+    if (!initFinished && requestHandler) {
+      initFinished = true
+      post({ type: "inited", sources: undefined, hasHandler: true })
+    }
   } catch (err) {
     failInit(err)
   }

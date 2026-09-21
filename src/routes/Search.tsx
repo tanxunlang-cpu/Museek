@@ -172,7 +172,14 @@ export function Search() {
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-border">
-        <div className="relative">
+        <form
+          className="relative"
+          onSubmit={(e) => {
+            e.preventDefault();
+            runSearch(inputValue);
+            setFocused(false);
+          }}
+        >
           <SearchIcon
             size={16}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10"
@@ -181,6 +188,7 @@ export function Search() {
             className="pl-9 pr-9"
             placeholder={t(placeholderKey)}
             value={inputValue}
+            enterKeyHint="search"
             onChange={(e) => handleChange(e.target.value)}
             onCompositionStart={() => {
               composingRef.current = true;
@@ -270,7 +278,7 @@ export function Search() {
               )}
             </div>
           )}
-        </div>
+        </form>
 
         {/* Search scope (songs / albums / playlists) + platform selector */}
         <div className="mt-3 flex items-center gap-2 flex-wrap">

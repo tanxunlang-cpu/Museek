@@ -5,7 +5,8 @@ import { assertAllowedSourceUrl } from "@/lib/sources/urlPolicy"
 import type { LxRequestResult, SourceScript } from "@/types/source"
 import type { HostToSourceWorker, SourceWorkerToHost } from "./sourceWorkerMessages"
 
-const INIT_MS = 10_000
+const READY_MS = 2_000
+const INIT_MS = 3_000
 
 function headersFromResponse(res: Response): Record<string, string> {
   const out: Record<string, string> = {}
@@ -139,13 +140,20 @@ export class SourceWorkerHost {
           ;(globalThis as unknown as { lx: unknown }).lx = prevLx
         }
       }
-      setTimeout(() => {
-        if (!settled) {
+      if (!settled) {
+        if (registeredHandler) {
           settled = true
-          if (registeredHandler) resolve(undefined)
-          else reject(new Error("Script did not register a request handler"))
+          resolve(undefined)
+        } else {
+          setTimeout(() => {
+            if (!settled) {
+              settled = true
+              if (registeredHandler) resolve(undefined)
+              else reject(new Error("Script did not register a request handler"))
+            }
+          }, 1000)
         }
-      }, 5000)
+      }
     })
   }
 
@@ -199,7 +207,7 @@ export class SourceWorkerHost {
       this.readyTimer = setTimeout(() => {
         this.readyTimer = null
         this.failInit(new Error(t("sources.err.workerCrash")))
-      }, INIT_MS)
+      }, READY_MS)
     })
   }
 
@@ -210,7 +218,7 @@ export class SourceWorkerHost {
         this.initTimer = null
         this.failInit(
           new Error(
-            "Script did not call lx.send('inited') within 10s (init API may be blocked)",
+            "Script did not call lx.send('inited') within 3s (init API may be blocked)",
           ),
         )
       }, INIT_MS)

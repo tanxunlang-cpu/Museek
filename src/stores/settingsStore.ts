@@ -3,6 +3,7 @@ import { readData, writeData } from "@/lib/db";
 import { normalizeLocalScanDepth } from "@/lib/localMusic/depth";
 import { setTrayVisible } from "@/lib/power";
 import { syncOpenAtLogin } from "@/lib/autostart";
+import { resolveSystemDefaultDir } from "@/lib/downloadPath";
 import {
   DEFAULT_SHORTCUTS,
   DEFAULT_LOCAL_SHORTCUTS,
@@ -614,6 +615,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         setTrayVisible(true);
       }
       void syncOpenAtLogin(openAtLogin);
+      if (!get().downloadDir && isTauri) {
+        void resolveSystemDefaultDir().then((defaultDir) => {
+          if (defaultDir && !get().downloadDir) {
+            set({ downloadDir: defaultDir });
+            persist();
+          }
+        });
+      }
       } finally {
         if (!get().hydrated) set({ hydrated: true });
       }

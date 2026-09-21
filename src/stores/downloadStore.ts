@@ -3,10 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { cdnFetchStrategies, cdnHeadersForUrl } from "@/lib/cdnHeaders";
 import { hiResCover } from "@/lib/cover";
 import { httpFetch as tauriFetch } from "@/lib/http";
-import { writeFile, remove, exists } from "@tauri-apps/plugin-fs";
+import { writeFile, remove, exists, mkdir } from "@tauri-apps/plugin-fs";
 import type { MusicInfo, Quality } from "@/types/music";
 import { resolveAdaptiveUrl } from "@/lib/playback";
 import { notify, promptDownloadLocation } from "@/lib/notify";
+import { resolveSystemDefaultDir } from "@/lib/downloadPath";
 import { useSettingsStore, type NamingScheme } from "@/stores/settingsStore";
 import { readData, writeData } from "@/lib/db";
 import { t } from "@/lib/i18n";
@@ -358,34 +359,47 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   tasks: [],
 
   addTask(song, quality) {
-    // No download location set yet → prompt the user (with a shortcut to Settings)
-    // instead of silently saving somewhere. downloadDir is a device-local setting.
+    const enqueue = () => {
+      const { downloadQuality, embedLyrics, embedCover } =
+        useSettingsStore.getState();
+      const q = quality ?? downloadQuality;
+      const task: DownloadTask = {
+        id: `dl_${Date.now()}_${song.id}`,
+        song,
+        quality: q,
+        embedLyrics,
+        embedCover,
+        status: "waiting",
+        progress: 0,
+      };
+      set((s) => {
+        const tasks = [...s.tasks, task];
+        persist(tasks);
+        return { tasks };
+      });
+      notify({
+        message: t("download.added", { name: song.name }),
+        variant: "success",
+      });
+      get()._pump();
+    };
+
     if (!useSettingsStore.getState().downloadDir) {
+      if (isTauri) {
+        void resolveSystemDefaultDir().then((dir) => {
+          if (dir) {
+            useSettingsStore.getState().setDownloadDir(dir);
+            enqueue();
+          } else {
+            promptDownloadLocation();
+          }
+        });
+        return;
+      }
       promptDownloadLocation();
       return;
     }
-    const { downloadQuality, embedLyrics, embedCover } =
-      useSettingsStore.getState();
-    const q = quality ?? downloadQuality;
-    const task: DownloadTask = {
-      id: `dl_${Date.now()}_${song.id}`,
-      song,
-      quality: q,
-      embedLyrics,
-      embedCover,
-      status: "waiting",
-      progress: 0,
-    };
-    set((s) => {
-      const tasks = [...s.tasks, task];
-      persist(tasks);
-      return { tasks };
-    });
-    notify({
-      message: t("download.added", { name: song.name }),
-      variant: "success",
-    });
-    get()._pump();
+    enqueue();
   },
 
   removeTask(id) {
@@ -585,6 +599,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         await embedMetadataInMemory(task, audio, payload);
 
       get().updateProgress(id, 96);
+      if (!(await exists(dir))) {
+        await mkdir(dir, { recursive: true });
+      }
       await writeFile(filePath, output);
 
       set((s) => {
