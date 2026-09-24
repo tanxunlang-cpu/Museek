@@ -1,18 +1,24 @@
-import { SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, Shuffle, Loader2, Heart, ListOrdered } from "lucide-react"
+import { SkipBack, SkipForward, Repeat, Repeat1, Shuffle, Heart, ListOrdered } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { IconBurst, IconCycle, IconSwap } from "@/components/common/IconSwap"
 import { ShortcutTooltip } from "@/components/ui/shortcut-tooltip"
+import { PlayPauseButton } from "@/components/player/PlayPauseButton"
 import { usePlayerStore } from "@/stores/playerStore"
 import { usePlaylistStore } from "@/stores/playlistStore"
 import { useT } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
-function ModeIcon({ playMode }: { playMode: string }) {
-  const common = { size: 16 as const }
-  if (playMode === "repeat-one") return <Repeat1 {...common} />
-  if (playMode === "shuffle") return <Shuffle {...common} />
-  if (playMode === "repeat-list") return <Repeat {...common} />
-  return <ListOrdered {...common} />
-}
+/**
+ * Play mode cycles through four states, so each change is a *swap* with its
+ * neighbour rather than a remount. A map keeps every mode's glyph in one place
+ * and lets the cross-fade bridge any step in the cycle.
+ */
+const MODE_ICON = {
+  sequence: ListOrdered,
+  shuffle: Shuffle,
+  "repeat-list": Repeat,
+  "repeat-one": Repeat1,
+} as const
 
 function modeHoverClass(playMode: string) {
   if (playMode === "shuffle") return "icon-hover-shuffle"
@@ -63,9 +69,13 @@ export function Controls({
         onClick={cyclePlayMode}
         title={t(`playMode.${playMode}`)}
       >
-        <span key={playMode} className="icon-pop-in">
-          <ModeIcon playMode={playMode} />
-        </span>
+        <IconCycle
+          value={playMode}
+          render={(mode) => {
+            const Glyph = MODE_ICON[mode as keyof typeof MODE_ICON] ?? ListOrdered
+            return <Glyph size={16} />
+          }}
+        />
       </Button>
 
       <ShortcutTooltip label={t("player.prev")} action="prev">
@@ -84,39 +94,16 @@ export function Controls({
         label={t(isPlaying ? "player.pause" : "player.play")}
         action="playPause"
       >
-        <Button
+        <PlayPauseButton
           variant="default"
           size="icon"
-          className="h-11 w-11 rounded-full shadow-[var(--shadow-elevated)] icon-hover-play-pause"
+          className="size-11"
+          isPlaying={isPlaying}
+          loading={loading}
+          aria-label={t(isPlaying ? "player.pause" : "player.play")}
           onClick={togglePlay}
           disabled={!canPlay || loading}
-        >
-          {loading ? (
-            <Loader2 size={18} className="animate-spin" />
-          ) : (
-            <span className="relative block size-[19px]">
-              <span
-                className={cn(
-                  "icon-swap",
-                  isPlaying ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[4px]"
-                )}
-                aria-hidden={!isPlaying}
-              >
-                <Pause size={19} fill="currentColor" strokeWidth={0} />
-              </span>
-              <span
-                className={cn(
-                  "icon-swap",
-                  !isPlaying ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[4px]"
-                )}
-                aria-hidden={isPlaying}
-              >
-                {/* Optical shift: play triangles read left-heavy when geometrically centered. */}
-                <Play size={19} fill="currentColor" strokeWidth={0} className="ml-0.5" />
-              </span>
-            </span>
-          )}
-        </Button>
+        />
       </ShortcutTooltip>
 
       <ShortcutTooltip label={t("player.next")} action="next">
@@ -143,12 +130,13 @@ export function Controls({
         disabled={!currentSong || isLocal}
         title={isLocal ? t("local.favoriteDisabled") : t("common.favorite")}
       >
-        <Heart
-          key={fav ? "on" : "off"}
-          size={16}
-          fill={fav ? "currentColor" : "none"}
-          className={fav ? "icon-heart-burst" : undefined}
-        />
+        <IconBurst active={fav}>
+          <IconSwap
+            active={fav}
+            inactive={<Heart size={16} />}
+            activeNode={<Heart size={16} fill="currentColor" />}
+          />
+        </IconBurst>
       </Button>
     </div>
   )

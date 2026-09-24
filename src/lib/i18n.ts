@@ -214,6 +214,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "listening.topSongsEmpty": "还没有达到统计次数的播放（听满 30 秒才计入排行）。",
     "listening.topArtistsEmpty": "还没有达到统计次数的歌手。",
     "listening.recentEmpty": "这段时间没有播放记录。",
+    "listening.recentLimit": "仅保留最近 {count} 首，更早的记录会自动清理。",
     "listening.playCount": "{count} 次",
     "listening.minutes": "{count} 分钟",
     "listening.seconds": "{count} 秒",
@@ -221,8 +222,11 @@ const dict: Record<Lang, Record<string, string>> = {
     "listening.hoursMinutes": "{hours} 小时 {minutes} 分钟",
     "listening.justNow": "刚刚",
     "listening.minutesAgo": "{count} 分钟前",
+    "listening.hoursAgo": "{count} 小时前",
     "listening.yesterdayAt": "昨天 {time}",
+    "listening.dayBeforeYesterdayAt": "前天 {time}",
     "listening.dateAt": "{date} {time}",
+    "listening.dateOnly": "{date}",
 
     // Favorites
     "favorites.title": "我的收藏",
@@ -432,6 +436,9 @@ const dict: Record<Lang, Record<string, string>> = {
     "player.mute": "静音",
     "player.unmute": "取消静音",
     "player.searchOther": "在其他平台搜索",
+    "player.qualityMenuTitle": "这首歌的播放音质",
+    "player.qualityMenuHint": "只对这首歌生效，不影响默认设置。",
+    "player.qualityDefaultTag": "默认",
     "playMode.sequence": "顺序播放",
     "playMode.shuffle": "随机播放",
     "playMode.repeat-list": "列表循环",
@@ -595,6 +602,14 @@ const dict: Record<Lang, Record<string, string>> = {
     "shortcuts.winHeld": "不能使用 Win 键，请改用 Ctrl、Alt、Shift。",
     "shortcuts.macCtrlHeld": "Mac 上请用 ⌘，不要用 Control。",
     "shortcuts.reset": "恢复默认",
+    "shortcuts.columnAction": "功能",
+    "shortcuts.resetLocal": "恢复默认应用内快捷键",
+    "shortcuts.resetGlobal": "恢复默认全局快捷键",
+    "shortcuts.globalMasterTitle": "启用全局快捷键",
+    "shortcuts.globalMasterDesc": "关闭后，本软件不再占用系统级热键，其他软件即可使用这些组合键；这些组合键在本软件内也不再生效。应用内那一列的快捷键不受影响。",
+    "shortcuts.globalToggleLabel": "启用「{action}」的全局快捷键",
+    "shortcuts.globalToggleHint": "关闭后释放该组合键给其他软件使用，在本软件内也不再生效。",
+    "shortcuts.globalToggleUnset": "先设置一个全局快捷键，再决定是否启用。",
     "shortcuts.fontHint": "歌词页内仍可用 Ctrl/⌘ + 滚轮调节字号（仅当前窗口）。",
     "shortcuts.registerFailed": "系统无法注册快捷键 {combo}",
     "shortcuts.registerFailedMany": "有 {n} 个快捷键无法注册为全局热键",
@@ -646,6 +661,13 @@ const dict: Record<Lang, Record<string, string>> = {
     "cache.clearConfirmTitle": "确定清理缓存？",
     "cache.clearConfirmDesc": "将清除已缓存的音频和歌词，不影响收藏和下载。",
     "cache.clearConfirm": "清理",
+    "cache.songQualityTitle": "单曲音质设置",
+    "cache.songQualityDesc": "为某一首歌单独设置的播放音质会保存在本机，换歌单或重启后依然生效。每条记录约 113 字节，最多保留 {max} 首，超出后自动覆盖最早设置的。",
+    "cache.songQualityCount": "已记录：{n} 首",
+    "cache.songQualityClear": "清除音质设置",
+    "cache.songQualityClearTitle": "确定清除单曲音质设置？",
+    "cache.songQualityClearDesc": "这些歌曲将恢复使用默认音质，收藏和下载不受影响。",
+    "cache.songQualityClearConfirm": "清除",
 
     // Config import / export
     "data.title": "配置同步",
@@ -766,6 +788,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "player.err.invalidAudio": "无法播放，请换其他音源",
     "player.err.playTimeout": "播放超时，请检查网络或换音源",
     "player.err.unknown": "未知错误",
+    "player.err.urlExpired": "播放链接已失效，请重试或换音源",
+    "player.err.rateLimited": "请求过于频繁，请稍后重试",
     "player.failedDetail": "播放失败：{msg}",
     "player.noSource": "尚未启用音源，无法播放",
     "player.goImport": "去导入",
@@ -969,6 +993,7 @@ const dict: Record<Lang, Record<string, string>> = {
       "No ranked plays yet (a play counts after 30 seconds).",
     "listening.topArtistsEmpty": "No ranked artists yet.",
     "listening.recentEmpty": "Nothing played in this period.",
+    "listening.recentLimit": "Keeps the latest {count} songs; older plays are cleared automatically.",
     "listening.playCount": "{count} plays",
     "listening.minutes": "{count} min",
     "listening.seconds": "{count} sec",
@@ -976,8 +1001,11 @@ const dict: Record<Lang, Record<string, string>> = {
     "listening.hoursMinutes": "{hours} hr {minutes} min",
     "listening.justNow": "Just now",
     "listening.minutesAgo": "{count} min ago",
+    "listening.hoursAgo": "{count} hr ago",
     "listening.yesterdayAt": "Yesterday {time}",
+    "listening.dayBeforeYesterdayAt": "2 days ago {time}",
     "listening.dateAt": "{date} {time}",
+    "listening.dateOnly": "{date}",
 
     // Favorites
     "favorites.title": "Favorites",
@@ -1194,6 +1222,9 @@ const dict: Record<Lang, Record<string, string>> = {
     "player.mute": "Mute",
     "player.unmute": "Unmute",
     "player.searchOther": "Search on another platform",
+    "player.qualityMenuTitle": "Playback quality for this song",
+    "player.qualityMenuHint": "Applies to this song only; the default is unchanged.",
+    "player.qualityDefaultTag": "Default",
     "playMode.sequence": "Sequential",
     "playMode.shuffle": "Shuffle",
     "playMode.repeat-list": "Repeat all",
@@ -1374,6 +1405,17 @@ const dict: Record<Lang, Record<string, string>> = {
     "shortcuts.winHeld": "The Windows key cannot be used. Use Ctrl, Alt, or Shift.",
     "shortcuts.macCtrlHeld": "On Mac use ⌘, not Control.",
     "shortcuts.reset": "Restore defaults",
+    "shortcuts.columnAction": "Action",
+    "shortcuts.resetLocal": "Restore default in-app shortcuts",
+    "shortcuts.resetGlobal": "Restore default global shortcuts",
+    "shortcuts.globalMasterTitle": "Enable global shortcuts",
+    "shortcuts.globalMasterDesc":
+      "When off, Museek stops claiming system-wide hotkeys so other applications can use those combos. They also stop working inside Museek; the in-app column is unaffected.",
+    "shortcuts.globalToggleLabel": "Enable the global shortcut for {action}",
+    "shortcuts.globalToggleHint":
+      "Turn off to release this combo for other applications. It stops working inside Museek too.",
+    "shortcuts.globalToggleUnset":
+      "Set a global shortcut first, then choose whether it is enabled.",
     "shortcuts.fontHint":
       "In the lyrics view, Ctrl/⌘ + scroll still changes font size (this window only).",
     "shortcuts.registerFailed": "Could not register {combo} as a global hotkey",
@@ -1432,6 +1474,15 @@ const dict: Record<Lang, Record<string, string>> = {
     "cache.clearConfirmDesc":
       "Clears cached audio and lyrics. Favorites and downloads are kept.",
     "cache.clearConfirm": "Clear",
+    "cache.songQualityTitle": "Per-song quality",
+    "cache.songQualityDesc":
+      "A quality chosen for one song is remembered on this device and survives switching playlists or restarting. Each entry is about 113 bytes; up to {max} are kept, and the oldest are overwritten beyond that.",
+    "cache.songQualityCount": "Remembered: {n}",
+    "cache.songQualityClear": "Clear quality choices",
+    "cache.songQualityClearTitle": "Clear per-song quality choices?",
+    "cache.songQualityClearDesc":
+      "These songs go back to the default quality. Favorites and downloads are unaffected.",
+    "cache.songQualityClearConfirm": "Clear",
 
     // Config import / export
     "data.title": "Config sync",
@@ -1562,6 +1613,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "player.err.playTimeout":
       "Playback timed out — check network or switch sources",
     "player.err.unknown": "Unknown error",
+    "player.err.urlExpired": "Play link expired — retry or switch sources",
+    "player.err.rateLimited": "Too many requests — try again shortly",
     "player.failedDetail": "Playback failed: {msg}",
     "player.noSource": "No source enabled — can't play",
     "player.goImport": "Import",

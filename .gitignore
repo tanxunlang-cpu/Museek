@@ -35,3 +35,9 @@ src-tauri/target/
 *.key
 !*.key.pub
 .tauri/
+
+# Local development scripts and one-off investigation tools. Not part of the app:
+# nothing in src/, src-tauri/, package.json or CI imports them, and they are not
+# bundled. Kept out of version control deliberately. The leading slash anchors
+# this to the repo root so a nested `scripts/` directory is not swept up too.
+/scripts/

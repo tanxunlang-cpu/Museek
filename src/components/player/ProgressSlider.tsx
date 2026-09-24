@@ -27,6 +27,10 @@ export function ProgressSlider({
   const status = usePlayerStore((s) => s.status);
   const currentSong = usePlayerStore((s) => s.currentSong);
   const sourceReady = usePlayerStore((s) => s.sourceReady);
+  // A same-song quality switch re-attaches the source, which really does reset
+  // the element to 0:00 before the store seeks back. Showing that would snap the
+  // bar to the start for a switch that does not change the track's position.
+  const reloadingCurrentTrack = usePlayerStore((s) => s.reloadingCurrentTrack);
   const seek = usePlayerStore((s) => s.seek);
   const playbackTime = usePlaybackTime();
   const t = useT();
@@ -49,10 +53,12 @@ export function ProgressSlider({
 
   useEffect(() => {
     if (scrubbing || status === "playing") return;
+    // Keep the last position across a quality reload instead of jumping to 0.
+    if (status === "loading" && reloadingCurrentTrack) return;
     setDisplayTime(
       status === "loading" || status === "idle" ? 0 : playbackTime,
     );
-  }, [playbackTime, status, scrubbing]);
+  }, [playbackTime, status, scrubbing, reloadingCurrentTrack]);
 
   const time = scrubTime ?? (status === "playing" ? playbackTime : displayTime);
   const pct =
@@ -129,6 +135,12 @@ export function ProgressSlider({
         className={cn(
           "group/slider relative flex w-full flex-1 touch-none select-none",
           flush ? "h-10 items-end" : "h-5 items-center",
+          // Suppress the default outline. The focus ring is drawn on the bar
+          // itself (below) because this element is a tall hit area — 40px in the
+          // lyrics overlay with the bar pinned to its bottom edge — so an outline
+          // here wrapped the whole box and appeared as a stray horizontal bar
+          // floating above the progress line.
+          "focus-visible:outline-none",
           disabled
             ? "cursor-not-allowed pointer-events-none"
             : "cursor-pointer",
@@ -142,6 +154,14 @@ export function ProgressSlider({
         }}
         onPointerDown={(e) => {
           if (disabled) return;
+          // A mouse drag must not move keyboard focus here. This element is a
+          // `role="slider"`, and `isShortcutBlockedTarget` deliberately ignores
+          // shortcuts typed inside a slider (so arrow keys can seek). Leaving it
+          // focused meant that after scrubbing, Space no longer toggled playback
+          // — the slider swallowed it — and the user had to click elsewhere
+          // before the keyboard worked again. `preventDefault` keeps focus where
+          // it was; keyboard users still reach the slider via Tab.
+          e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
           setHoverX(ratioFromClientX(e.clientX));
           beginScrub(e.clientX);
@@ -182,6 +202,9 @@ export function ProgressSlider({
           className={cn(
             "relative w-full grow overflow-visible bg-secondary/80 transition-[height] duration-200",
             flush ? "rounded-none" : "rounded-full",
+            // Ring on the bar, so the keyboard focus cue hugs the line the user
+            // is actually moving instead of the tall invisible hit area.
+            "group-focus-visible/slider:ring-2 group-focus-visible/slider:ring-ring group-focus-visible/slider:ring-offset-1 group-focus-visible/slider:ring-offset-background",
             flush
               ? hover || scrubbing
                 ? "h-2"

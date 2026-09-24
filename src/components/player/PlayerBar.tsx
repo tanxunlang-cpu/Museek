@@ -14,6 +14,7 @@ import { Controls } from "./Controls";
 import { ProgressSlider } from "./ProgressSlider";
 import { VolumeControl } from "./VolumeControl";
 import { Button } from "@/components/ui/button";
+import { IconSwap } from "@/components/common/IconSwap";
 import { ShortcutTooltip } from "@/components/ui/shortcut-tooltip";
 import {
   DropdownMenu,
@@ -24,9 +25,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   PlatformBadge,
-  QualityBadge,
   PLATFORM_BRAND,
 } from "@/components/common/MetaBadges";
+import { SongQualityMenu } from "./SongQualityMenu";
 import { PLATFORM_ORDER } from "@/components/common/PlatformTabs";
 import { DownloadSongButton } from "@/components/common/DownloadSongButton";
 import { enterMiniPlayer } from "@/lib/miniPlayer";
@@ -40,7 +41,6 @@ import type { OnlineSource } from "@/types/music";
 export function PlayerBar() {
   const {
     currentSong,
-    currentQuality,
     currentPicUrl,
     queue,
     showQueue,
@@ -62,6 +62,11 @@ export function PlayerBar() {
     visible: desktopLyricsVisible,
   });
   const loading = status === "loading";
+  // A quality switch reloads the audio source of the track already playing, so
+  // the cover and title are unchanged. Dimming the cover and covering it with a
+  // spinner made that switch look like a fresh load.
+  const reloadingCurrentTrack = usePlayerStore((s) => s.reloadingCurrentTrack);
+  const showCoverLoading = loading && !reloadingCurrentTrack;
   // Prefer the resolved cover; while loading fall back to the song's own pic so
   // the art doesn't blank out — the spinner overlay still signals resolving.
   const coverSrc = currentPicUrl ?? currentSong?.meta.picUrl ?? null;
@@ -97,9 +102,9 @@ export function PlayerBar() {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (!loading) setShowLyrics(true);
+                if (!showCoverLoading) setShowLyrics(true);
               }}
-              disabled={loading}
+              disabled={showCoverLoading}
               // Inner clips overlay so it never paints past rounded corners.
               className="group relative h-10 w-10 sm:h-12 sm:w-12 shrink-0 transition-transform duration-150 ease-out active:scale-[0.96] disabled:pointer-events-none"
             >
@@ -109,10 +114,10 @@ export function PlayerBar() {
                   alt=""
                   className={cn(
                     "h-full w-full object-cover transition-opacity duration-200",
-                    loading && "opacity-60",
+                    showCoverLoading && "opacity-60",
                   )}
                 />
-                {loading ? (
+                {showCoverLoading ? (
                   <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45">
                     <Loader2 size={16} className="animate-spin text-white" />
                   </span>
@@ -126,7 +131,7 @@ export function PlayerBar() {
             </ShortcutTooltip>
           ) : (
             <div className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-muted flex items-center justify-center overflow-hidden shrink-0 shadow-[var(--shadow-border)]">
-              {loading ? (
+              {showCoverLoading ? (
                 <Loader2
                   size={16}
                   className="animate-spin text-muted-foreground"
@@ -154,7 +159,7 @@ export function PlayerBar() {
                 >
                   {currentSong.singer}
                 </p>
-                <QualityBadge quality={currentQuality} className="hidden sm:inline-flex" />
+                <SongQualityMenu />
               </div>
             </div>
           ) : (
@@ -231,6 +236,7 @@ export function PlayerBar() {
               )}
               action="desktopLyrics"
             >
+<<<<<<< HEAD
               <Button
                 variant="ghost"
                 size="icon"
@@ -253,6 +259,40 @@ export function PlayerBar() {
               </Button>
             </ShortcutTooltip>
           </div>
+=======
+              <MicVocal size={16} />
+            </Button>
+          </ShortcutTooltip>
+          <ShortcutTooltip
+            label={t(
+              desktopLyricsVisible
+                ? "player.desktopLyricsClose"
+                : "player.desktopLyrics",
+            )}
+            action="desktopLyrics"
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-9 w-9 shrink-0 icon-hover-captions",
+                desktopLyricsVisible && "text-primary",
+              )}
+              onClick={() =>
+                void (desktopLyricsVisible
+                  ? hideDesktopLyrics()
+                  : openDesktopLyrics())
+              }
+              disabled={desktopLyricsControlsDisabled}
+            >
+              <IconSwap
+                active={desktopLyricsVisible}
+                inactive={<Captions size={16} />}
+                activeNode={<CaptionsOff size={16} />}
+              />
+            </Button>
+          </ShortcutTooltip>
+>>>>>>> upstream/main
           <Button
             variant="ghost"
             size="icon"

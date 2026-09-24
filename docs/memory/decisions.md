@@ -1,3 +1,155 @@
+## 2026-09-14 - Artist stats credit each artist, not each credit string
+
+Decision:
+`aggregateListening` splits a song's `singer` on `、;；,，` and credits every name individually, so a collab (`鬼才、刀酱`) adds to both 鬼才 and 刀酱 rather than forming a separate "鬼才、刀酱" row. A play counts once per song but once per credited artist. The `singerFilter` matches if the artist appears anywhere in a credit, so opening an artist shows their collabs too. `TopArtistStat` no longer carries a `song` snapshot. The artist list shows a monogram instead of a song cover.
+
+Reason:
+Every platform adapter joins artists with `、` (`formatSingers`), so it is the one separator guaranteed by the data contract. `/` and `&` are deliberately not separators — they occur inside real names (AC/DC, Simon & Garfunkel) and splitting them would invent artists. The per-credit-string keying made collabs rank separately from the same artist's solo work, so a listener's real top artist could be buried under fragmented rows. Dropping the song cover is honest: an artist has no artwork of its own, and a borrowed track cover changes depending on which song played last.
+
+## 2026-09-24 - Suppress the focus ring only for pointer-driven menu closes
+
+Decision:
+`DropdownMenuContent` (in `src/components/ui/dropdown-menu.tsx`) handles `onCloseAutoFocus` itself: when the last interaction was a pointer, it re-focuses the restored trigger with `focus({ focusVisible: false })` in a `queueMicrotask`. Keyboard closes keep the ring. `src/lib/focusModality.ts` records the modality from capture-phase `pointerdown`/`keydown` listeners and exposes `focusWithoutRing`, which blurs first because `focus()` on an already-focused element keeps the existing `:focus-visible` state.
+
+Reason:
+Radix restores focus to the menu trigger on close (`onCloseAutoFocus` → `triggerRef.current?.focus()`). That is right for keyboard users — focus must not be dropped to `<body>` — but after a mouse-only interaction the browser matches `:focus-visible` on the trigger and paints its ring, leaving a keyboard affordance on screen for a click. Measured in Chromium (both WebView2 and WKWebView): `focus({ focusVisible: false })` does clear the ring when the element is not already focused, but a plain `focus()` on an already-focused element is a no-op that preserves the ring, hence the blur. The fix sits in the shared content wrapper so all 15 menus inherit it, and it keys off `aria-haspopup` on the newly focused element so an interaction outside the menu is untouched. Deferring via `queueMicrotask` is required because Radix's own focus-moving handler is composed to run *after* this callback.
+
+## 2026-09-24 - A same-song quality reload preserves the cover, lyrics and duration
+
+Decision:
+`playerStore.play()` computes `const sameSongReload = force && current?.id === song.id` and, when true, updates only `currentQuality` / `status` / `sourceReady` — it keeps `currentPicUrl` (falling back to the existing value when the song has no `meta.picUrl`), `lyricLines`, `lyricsLoading` and `duration` untouched, and skips the trailing `_loadLyric` / `_loadPic` refetch. A new `reloadingCurrentTrack` state flag is set from the same expression and cleared in a `finally` guarded by `isPlayGenerationCurrent(gen)`; `PlayerBar` uses it to suppress the cover dim/spinner and `ProgressSlider` uses it to hold its position instead of snapping to 0:00.
+
+Reason:
+Changing one track's quality re-attaches the audio source, which is the only thing that actually changes. Wiping `currentPicUrl` to `song.meta.picUrl ?? null` blanked the cover whenever `picUrl` was absent — the common case, because the cover was already resolved from the source and stored only in `currentPicUrl`. `_loadPic` then refetched and repainted a *different* URL, which is the visible flash. `duration: 0` also made the seek bar jump to 0:00 for a switch that does not change the track's length. The flag must clear in a `finally` rather than on the success path, because a failed reload would otherwise leave the cover permanently undimmed; the generation guard stops a superseded `play()` from clearing a newer one's flag.
+
+## 2026-09-24 - Global shortcuts can be switched off without losing their binding
+
+Decision:
+`disabledGlobalShortcuts: ShortcutAction[]` in `settingsStore` lists actions whose OS-global hotkey is switched off. Two pure helpers in `src/lib/shortcutKeys.ts` are the single source of truth: `activeGlobalShortcuts(map, disabled)` for what reaches the OS, and `inAppShortcutBindings(localMap, globalMap, disabled)` for what the in-app keydown handler matches (all local bindings first, then enabled globals). The panel gets a master switch plus one switch per action row, and each key column has its own reset button (`resetShortcuts(slot)`). The list is in `DEVICE_LOCAL_SETTINGS` so it never syncs.
+
+Reason:
+The complaint is a combo clash with another application. Disabling releases the combo but KEEPS the binding, so re-enabling needs no re-recording and the row can still show what was released. The in-app handler must honour the switch too: the global map is matched in-app as well (that is what keeps the shortcut working when OS registration is unavailable), so consulting only `activeGlobalShortcuts` for the OS left the combo live with the window focused — users toggled it off and it still fired. In-app use is not lost, because the local column is a separate binding. Clearing on record matters because a stale flag would make a freshly recorded combo look broken. It is device-local because a clash is caused by software installed on *this* machine. Duplicate combos resolve to the earliest action in `SHORTCUT_ACTIONS`, which is the pre-existing registrar behaviour and is now pinned by a test.
+
+## 2026-09-24 - A per-song quality choice outlives the queue
+
+Decision:
+Per-song quality lives in `src/lib/songQualityPrefs.ts`, persisted to the device-local `songQualityPrefs.json`, keyed by `MusicInfo.id` (already globally unique: `wy_123`, `local_<md5>`). `QueueItem.qualityOverride` is now a *projection* of that store, re-applied by `hydrateQualityOverrides` wherever a queue is built or restored — `playAll`, `addToQueue`, the new-item branch of `play()`, and the session restore. `play()`/`togglePlay`/`restorePlaybackSource` read `getStoredQuality(id) ?? item.qualityOverride`. Retention is a FIXED constant `MAX_STORED_QUALITIES = 2_000` with least-recently-used eviction applied on read and write; Settings → Cache shows the count and a confirmed clear, and deliberately offers no limit control.
+
+Reason:
+The choice is a standing instruction about a *song*, not about the queue it happened to be in, so keying it to the queue meant "play all" on another playlist silently forgot it. `MusicInfo.id` is the right key because it is already what every queue/UI comparison uses and it is unique across sources. The cap is a constant rather than a setting because it is really a SIZE cap and the size is negligible: measured at ~113 bytes per entry pretty-printed in the worst case (40-char local id, `flac24bit`, 13-digit timestamp), so 2,000 entries is ~224 KB — about 1/4500th of the default 1 GB audio cache and ~5x smaller than the listen log's 1.2 MB. Asking "how many songs should we remember?" is asking a question the user cannot answer, for a file that cannot matter; past the cap the least recently used choice is dropped, which degrades invisibly because the choices a user is living with are the recent ones. LRU rather than oldest-set for that reason. Re-applying the cap on read as well as write means an oversized or malformed file is cleaned up on load, matching `trimEvents` in `listenLog`. The store is device-local by being absent from `configIO`'s `DB_FILES`, so a config import can never wipe it; `setStoredQuality` holds writes made before the file has loaded, because startup reads settings and player prefs in parallel and the badge is clickable in that window.
+
+## 2026-09-24 - A per-song quality choice normalises to "no choice"
+
+Decision:
+`QueueItem.qualityOverride` holds a quality chosen for one track only; absent means "follow the global default". `nextQualityOverride(picked, defaultQuality)` returns `undefined` when the pick equals the current default, so setting a track back to the default makes it an ordinary song again. The player-bar badge opens a `SongQualityMenu` offering exactly `QUALITY_LADDER`. Local files show a plain badge (their quality is a property of the file). An explicit choice uses `findCachedExactQuality` plus `findCachedAtOrBelow`, never the "best copy" helpers. All of this lives in `src/lib/songQuality.ts` / `src/lib/playback.ts`.
+
+Reason:
+Normalising must happen when the user makes the choice, not when playback reads it. A stored override outlives a later change to the default: a track set back to 320k would stay pinned to 320k after the user switched their default to FLAC, behaving unlike every other song — the exact thing "treat it as never touched" is meant to prevent. The cache rule is the other half: `findCachedMeetingPreferred` walks the ladder from the BEST tier down, which is right for the default (a cached FLAC satisfies a 320k preference) but wrong for an explicit choice — picking 128K while a FLAC sits on disk would play the FLAC and show FLAC on the badge, so the switch would look broken. `resumeResolveQuality` handles the asymmetry on resume: without an override only a shortfall is worth a round trip, but an override must be able to move playback *down*, which the upgrade ladder cannot express. 192k/256k are excluded because they are local display tiers absent from `QUALITY_LADDER`, so offering them yields an empty candidate list.
+
+## 2026-09-24 - A forced play request is never redundant
+
+Decision:
+`playerStore.play()` takes a third `opts?: { force?: boolean }`. `force` bypasses the same-song short-circuit and the same-local-file seek-in-place branch, and the position is captured before the reload and re-seeked after, so a forced reload does not restart the track. Both callers that deliberately reload the current track pass it: the resume-time quality upgrade in `togglePlay`, and the one-shot expired-URL retry in `play()`'s catch. The two predicates (`isRedundantPlayRequest`, `shouldUpgradeOnResume`) live in `src/lib/playRequest.ts` — import-free so plain node can exercise them.
+
+Reason:
+`togglePlay` set `playPending = true`, then called `play(song, preferred)` to upgrade the current track. `play` saw the same song already attached *and* `playPending` set, so it returned without doing anything, and `finally` reset the flag — every later press re-entered the identical branch. Playback could never resume. Reachable without any per-song feature: an earlier auto-downgrade leaves a lower tier in the disk cache, so on the next launch `restorePlaybackSource` sets `currentQuality` to that cached tier while `skipQualityUpgrade` is still empty (it is module state), and the first Space press deadlocks. The expired-URL retry had the same defect: a play timeout leaves the source attached, `sourceReady` true and `status` still `"loading"`, which is exactly the shape the short-circuit drops. `force` must also skip the CUE seek-in-place branch, otherwise a reload of a local file would silently keep the old source. Note the guard is deliberately *not* "remove the `playPending` check" — that check is what stops a double-press from starting two loads.
+
+## 2026-09-23 - Classify playback errors in one pure module
+
+Decision:
+Playback-error copy lives in `src/lib/playError.ts` (`formatRemotePlayError`, `isIgnorablePlayError`) and takes the translator as an argument. `playerStore` imports it instead of keeping private copies. `Audio request failed (NNN)` is classified by status: 401/403/404/410/451 → `player.err.urlExpired`, 429 → `player.err.rateLimited`, 5xx → `player.err.network`, anything else → `player.err.invalidAudio`. Already-localized copy passes through unchanged so a second format pass is a no-op.
+
+Reason:
+`fetchWebAudio` in `lib/audio.ts` threw `Audio request failed (403)`, which matched none of the existing patterns, so it fell through to `player.failedDetail` and users saw raw English inside a localized string: `播放失败：Audio request failed (403)`. The status also carries the actionable advice — a 403/404 almost always means the resolved play URL expired and a refresh is needed, which is different from "switch sources". Passing `t` in keeps the module pure so the mapping can be verified without a browser. Idempotence matters because `_handleError` may format a message a previous layer already formatted; without the pass-through the network case rendered as `播放失败：网络连接失败，请检查网络或换音源`.
+
+## 2026-09-23 - One owner per playback failure, and retries must re-fetch
+
+Decision:
+`AudioPlayer` reports a failure through exactly one channel. The HTML element uses `onError` (DOM events, no promise). The Web Audio path reports *only* by rejecting the `whenReady()`/`play()` promise, which `playerStore` awaits; `ensureWebBuffer` no longer calls `onError` and now clears its `loadPromise`/`loadAbort` on failure. `setSource(url)` re-applies an identical URL when the element is in an error state instead of returning early.
+
+Reason:
+Both bugs were invisible until the real module was driven in a browser, against a server that fails on demand, on both backends. (1) `ensureWebBuffer`'s catch called `onError` *and* rejected the promise, so `playerStore` handled one failure twice: `_handleError` ran `listenFinish(false)` and closed the listening session before `play()` could retry — writing a bogus near-zero-length entry into the user's history for a track that then played fine. (2) The rejected promise was retained forever, so a retry reusing a byte-identical URL (a CDN url with no timestamp, or a cached response) replayed the settled rejection and **no second request ever left the app** — the same error appeared twice. The same defect existed on the HTML path via the early return in `setSource`. Fixing only the Web Audio path would have left macOS/Linux broken, which is why the harness asserts both.
+
+## 2026-09-23 - Shrink desktop lyrics to fit the window instead of overflowing
+
+Decision:
+The desktop lyrics line shrinks (`FIT_MIN_SCALE` 0.4, `FIT_GUTTER` 20px) so its capsule always fits inside the native window. `src/lib/desktopLyricsFit.ts` computes the scale as a closed form: `(viewportWidth - gutters) / ((contentWidth + padding*2) / appliedFit)`. The scale multiplies font size *and* capsule padding together.
+
+Reason:
+The lyrics window is sized to the monitor's **physical** width, so the CSS viewport is `physicalWidth / scaleFactor` logical pixels, while lyric text is laid out in logical pixels at a size that does not change with display scaling. Raising the OS scale factor therefore shrinks the available width while the text stays the same size. The capsule is centred, and a centred flex item wider than its container overflows both edges equally — the native window hard-clips it, so the rounded left and right ends disappear and the capsule reads as a rectangle. This supersedes "Preserve intrinsic width for long desktop lyrics" (letting lines overflow the screen is not viable when the OS clips them) while keeping the single-line, no-wrap presentation that decision protected. Measured: capsule width is linear in the applied scale to within 0.003% over a 40% range, so one pass converges — the effect re-runs on `fitScale`, and the returned scale is a fixed point, which is what stops it looping.
+
+## 2026-09-23 - DialogContent centres by translate, not inset + margin auto
+
+Decision:
+`DialogContent` is positioned `fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-h-[calc(100%-2rem)]` with `height: auto`.
+
+Reason:
+The previous `fixed inset-0 m-auto h-fit` made the dialog's height depend entirely on `height: fit-content` resolving, because `inset-0` pins top *and* bottom to 0. When it does not resolve to the content height the used value falls back to `auto`, and with both insets at 0 that stretches the box to the full containing block — the changelog dialog filled the whole window on macOS while looking correct on Windows. Verified in Chromium that `inset-0` + `height: auto` yields full viewport height (691px) while `top/left:50%` + translate yields content height, correctly centred, and caps at `max-height`. The `max-h` cap also keeps a tall dialog from overflowing both edges.
+
+## 2026-09-14 - Fixed-width trailing columns in TrackRow
+
+Decision:
+`TrackRow`'s trailing columns are fixed-width: the platform chip sits in a `w-20` slot (chip flush right), `stat` is a fixed slot sized by a `statWidth` prop (default `w-20`). `stat` renders **before** the platform chip and duration, not after. Never use `max-w` or intrinsic width on these columns.
+
+Reason:
+The name column is `flex-1`, so every column to its right is anchored from the row's right edge — which means any *variable* width pushes its left neighbours sideways. A `max-w-24` stat looked harmless because the value was right-aligned, but its left edge moved with the text (`2 小时前` 52px vs `9/14 15:08` 67px), shifting the duration and platform columns per row. Platform chips vary too (`酷我` 46px vs `QQ Music` 74px). Fixed slots pin every anchor so all rows share column edges. Widths are measured, not guessed: the widest real stat is `12/31 20:00` at 74px and the widest English play count is `1,234 plays` at 70px, so one `w-20` (80px) slot serves both tabs. Placing `stat` before the platform chip keeps it adjacent to the song it describes and puts the slack from short titles to its left, instead of leaving a hole between the title and the trailing metadata.
+
+## 2026-09-23 - A slider owns only its own keys, and a drag must not focus it
+
+Decision:
+`ProgressSlider`'s track calls `preventDefault()` on `pointerdown` so a mouse drag never moves keyboard focus onto it, and draws its focus ring on the bar (`group-focus-visible/slider:ring-2`) rather than leaving the browser's default outline on the 40px-tall hit area. `isShortcutBlockedTarget` moved to `src/lib/shortcutTargets.ts` and now takes the pressed key: a `role="slider"` blocks only `SLIDER_KEYS` (arrows, Home/End/PageUp/PageDown), while text fields and composite roles still block everything.
+
+Reason:
+Confirmed with real mouse/key input over CDP, because focus and `:focus-visible` are decided by the browser's input pipeline and synthetic DOM events cannot reproduce them. The seek bar is a `role="slider"`, which `isShortcutBlockedTarget` treats as an opaque widget — deliberately, so arrows seek. But a pointer drag focused it, so after scrubbing the user's very next Space was swallowed and playback could not be resumed from the keyboard; clicking elsewhere fixed it, which is exactly the reported symptom. The default outline also wrapped the whole hit area (40px tall in the lyrics overlay, bar pinned to its bottom), reading as a stray horizontal bar above the progress line. Both fixes are needed: `preventDefault` stops the focus being stolen, and the key-aware block means a *keyboard* user who tabs to the slider can still press Space. Note `@radix-ui/react-slider` (the volume control) already calls `focus({ focusVisible: false })` on pointerdown, so it never had the first problem.
+
+## 2026-09-14 - Inset focus ring on Input
+
+Decision:
+`src/components/ui/input.tsx` draws its focus ring with `ring-[1.5px] ring-inset` plus a border-color change, not the default outset `ring` + `ring-offset-2`. Do not revert to an outset ring without auditing every container that hosts an `Input` for `overflow-hidden`.
+
+Reason:
+An outset ring paints outside the element's box (2px offset + 2px ring = 4px of overhang). Search boxes sit in fixed-height toolbars — the playlist detail row is `h-9` holding an `h-8` input with only 2px of slack, and no horizontal padding — so `overflow-hidden` sliced the ring on all four sides. An inset ring needs no overhang and therefore cannot be clipped, which fixes every occurrence centrally instead of padding each container. The ring is 1.5px rather than 2px because it sits directly against the 1px border in the same colour, so the two read as one stroke and 2px looked like a 3px edge.
+
+## 2026-09-14 - Listen log retention and recents identity
+
+Decision:
+`listenLog.json` keeps at most `MAX_LISTEN_EVENTS` (2,000) events, oldest dropped first; the cap is re-applied on both read and write so an install upgrading from the old 8,000 cap shrinks on first load. Recents collapse to one row per song id (newest play wins), then sort by time and cap at `RECENT_LIMIT` (100). The log is written with `writeDataCompact` (no indentation). Relative timestamps are rendered by `formatRelativePlayed` in `src/lib/listenFormat.ts`, with `useMinuteTick` supplying a ticking `now`.
+
+Reason:
+The log is a history, not a library, so it needs one predictable ceiling on disk use. Measured: a realistic online snapshot is ~620 bytes compact, so 2,000 events cap the file near 1.2 MB and still cover ~40 days at 50 plays/day, comfortably past the longest 30-day period. The old 8,000 cap with pretty-printing reached 8.7 MB. Dedupe by song id (not by adjacent repeats) is what makes "recently played" a list of songs: a track on repeat previously filled the list with itself.
+
+## 2026-09-14 - Relative "recently played" time ladder
+
+Decision:
+Recents show 刚刚 → N 分钟前 → N 小时前 → 昨天 HH:MM → 前天 HH:MM → M/D HH:MM, and a play from a *previous year* shows the date alone (2025/12/31). The relative branches are gated on the calendar day, not only on elapsed time, so a 23:00 play read at 02:00 is 昨天 23:00 rather than 3 小时前; minutes still win over the day boundary, so 23:50 read at 00:10 stays 20 分钟前.
+
+Reason:
+Day labels are the more useful anchor once the calendar has changed, but a clock time must stay alongside them — on a history screen "昨天" alone does not say whether it was morning or late night. Keeping minutes relative across midnight avoids the jarring case where a play from twenty minutes ago is labelled with a day name. Dropping the clock for a previous year keeps the whole ladder inside one narrow fixed-width column: `2025/12/31 20:00` measured 108px and forced the column to `w-28`, while the date alone is 72px and fits the same `w-20` slot as every other value. The exact minute of a play from last year is not worth the column width.
+
+## 2026-09-14 - One shared spring motion language for icon controls
+
+Decision:
+Icon motion has three layers, all driven by spring physics rather than linear or plain ease curves. Poses (hover/active nudge) are CSS transitions reading `--motion-*` and `--ease-spring-*` from `:root`; state swaps cross-fade both glyphs via `IconSwap` / `IconCycle` in `src/components/common/IconSwap.tsx`; one-shot accents use `IconBurst`. `motion/react` presets live in `src/lib/motion.ts`. The CSS spring curves are derived from real physics (settle duration + bounce → stiffness/damping/mass → minimax cubic-bezier fit), declared as cubic-bezier for compatibility with an exact `linear()` set layered under `@supports`. Reduced motion flattens every curve to `ease-out` and cuts the travel while keeping the static cue.
+
+Reason:
+Springs are what make motion read as "light and elastic" instead of mechanical, and bridging both glyphs of a state change is what makes it feel connected rather than cut. Deriving the curves from real physics (instead of hand-picked beziers) keeps hover, press, and swap tuned to the same scale. One token set means the whole app stays consistent instead of drifting per component.
+
+## 2026-09-14 - Window min/max/close stay static
+
+Decision:
+The custom minimize / maximize / close buttons in `src/components/layout/WindowControls.tsx` carry no hover scale, spring, or transition. Only the flat hover color changes.
+
+Reason:
+They are OS chrome, not app controls. A spring there reads as the window itself wobbling, and animating the least interesting corner of the UI pulls attention away from real controls.
+
+## 2026-09-14 - Play/pause and volume morphs keep their own spring
+
+Decision:
+The play/pause SVG path morph keeps `stiffness 180 / damping 20 / mass 1` (`SPRING_MORPH`), and the primary transport button keeps its own hover spring (`SPRING_HERO`, `400/24/0.55`) rather than the shared CSS token. Do not fold these into the shared hover spring.
+
+Reason:
+A path morph is one shape *becoming* another, so it wants a long, nearly critically damped settle; the snappier springs that suit a pose make the morph look like it snaps. The play button is the largest control on screen, so at equal travel it moves further in absolute pixels and needs a heavier settle to feel planted. Both were already tuned and approved.
+
 ## 2026-09-14 - Device-local listening stats
 
 Decision:

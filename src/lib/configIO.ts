@@ -11,7 +11,8 @@ import { LYRIC_FONT_SCALE_KEY } from "@/lib/lyrics/fontScale";
 // downloaded files, localMusic.json, downloads.json, player.json (volume/
 // mute), fonts.json (UI / desktop-lyrics families), playbackSession.json (queue / now-playing), listenLog.json (listening stats), sourceProbe.json (source
 // health-check results), miniPlayer.json (mini-bar
-// position), desktopLyrics.json, desktopLyricsGeometry.json, and
+// position), desktopLyrics.json, desktopLyricsGeometry.json,
+// songQualityPrefs.json (per-song quality choices), and
 // museek.whatsNew.seenVersion / AppData whats-new-*.json — those are device-local.
 
 const isTauri =
@@ -35,8 +36,10 @@ const LS_KEYS = [
 
 // Settings specific to THIS device that must never travel via sync: the sync
 // folder path, the stored passphrase, the auto-backup flag, the last-synced
-// timestamp, and the download location (Windows/macOS paths differ, so it's
-// per-device). Stripped on export; preserved (not overwritten) on import.
+// timestamp, the download location (Windows/macOS paths differ, so it's
+// per-device), and the disabled-global-shortcut list (a combo is switched off
+// because another application INSTALLED ON THIS MACHINE already owns it, so
+// syncing it would needlessly disable a working shortcut elsewhere).
 const DEVICE_LOCAL_SETTINGS = [
   "syncFolder",
   "syncPassphrase",
@@ -49,6 +52,7 @@ const DEVICE_LOCAL_SETTINGS = [
   "localMatchOnImport",
   "openAtLogin",
   "startHiddenToTray",
+  "disabledGlobalShortcuts",
 ];
 
 export interface MuseekConfig {

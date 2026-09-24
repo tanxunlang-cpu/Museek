@@ -1,14 +1,16 @@
 import { useEffect } from "react";
 import { useSettingsStore } from "@/stores/settingsStore";
 import {
-  SHORTCUT_ACTIONS,
+  activeGlobalShortcuts,
   eventMatchesShortcut,
   formatShortcut,
+  inAppShortcutBindings,
   isShortcutCaptureLocked,
-  isValidGlobalShortcut,
+  type ShortcutAction,
   type ShortcutMap,
 } from "@/lib/shortcutKeys";
 import { runShortcutAction } from "@/lib/shortcutActions";
+import { isShortcutBlockedTarget } from "@/lib/shortcutTargets";
 import { notify } from "@/lib/notify";
 import { t } from "@/lib/i18n";
 import { isMacOs, isMobile } from "@/lib/os";
@@ -70,9 +72,10 @@ export async function suspendGlobalShortcuts(): Promise<void> {
 
 export async function resumeGlobalShortcuts(): Promise<void> {
   if (!isTauri || isMobile()) return;
-  const { hydrated, shortcuts } = useSettingsStore.getState();
+  const { hydrated, shortcuts, disabledGlobalShortcuts } =
+    useSettingsStore.getState();
   if (!hydrated) return;
-  await syncGlobalShortcuts(shortcuts, { silent: true });
+  await syncGlobalShortcuts(shortcuts, disabledGlobalShortcuts, { silent: true });
 }
 
 /** Try the OS hotkey table without keeping the binding. */
@@ -101,6 +104,7 @@ export async function probeGlobalShortcut(
 
 async function syncGlobalShortcuts(
   map: ShortcutMap,
+  disabled: readonly ShortcutAction[],
   options: { silent?: boolean } = {},
 ): Promise<void> {
   if (!isTauri || isMobile()) return;
@@ -115,13 +119,11 @@ async function syncGlobalShortcuts(
     /* nothing registered yet */
   }
   if (gen !== registerGeneration) return;
-  const reverse = new Map<string, (typeof SHORTCUT_ACTIONS)[number]>();
-  for (const action of SHORTCUT_ACTIONS) {
-    if (!map[action] || !isValidGlobalShortcut(map[action])) continue;
-    if (!reverse.has(map[action])) reverse.set(map[action], action);
-  }
+  // Only bound, valid, ENABLED shortcuts reach the OS. A disabled action keeps
+  // its binding but releases the combo so other applications can use it.
+  const reverse = activeGlobalShortcuts(map, disabled);
   const failed: { combo: string; reason: string }[] = [];
-  for (const [accel, action] of reverse) {
+  for (const { accel, action } of reverse) {
     try {
       await register(accel, (event) => {
         if (event.state !== "Pressed") return;
@@ -150,23 +152,6 @@ async function syncGlobalShortcuts(
   }
 }
 
-function isShortcutBlockedTarget(el: EventTarget | null): boolean {
-  if (!(el instanceof HTMLElement)) return false;
-  if (
-    el.tagName === "INPUT" ||
-    el.tagName === "TEXTAREA" ||
-    el.tagName === "SELECT" ||
-    el.isContentEditable
-  ) {
-    return true;
-  }
-  return Boolean(
-    el.closest(
-      '[role="slider"], [role="combobox"], [role="listbox"], [role="menu"], [role="menuitem"], [role="dialog"], [role="tablist"]',
-    ),
-  );
-}
-
 /**
  * Window-local keydown for in-app bindings (and global ones while focused),
  * plus OS hotkeys for the global map.
@@ -175,27 +160,36 @@ export function useGlobalShortcuts(): void {
   const hydrated = useSettingsStore((s) => s.hydrated);
   const shortcuts = useSettingsStore((s) => s.shortcuts);
   const localShortcuts = useSettingsStore((s) => s.localShortcuts);
+  const disabledGlobalShortcuts = useSettingsStore(
+    (s) => s.disabledGlobalShortcuts,
+  );
 
   useEffect(() => {
     if (!hydrated) return;
 
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat) return;
-      if (isShortcutCaptureLocked() || isShortcutBlockedTarget(e.target))
+      if (isShortcutCaptureLocked() || isShortcutBlockedTarget(e.target, e.key))
         return;
-      const maps = [localShortcuts, shortcuts];
-      for (const map of maps) {
-        for (const action of SHORTCUT_ACTIONS) {
-          if (!map[action] || !eventMatchesShortcut(e, map[action])) continue;
-          if (!runShortcutAction(action)) return;
-          e.preventDefault();
-          e.stopPropagation();
-          const active = document.activeElement;
-          if (active instanceof HTMLElement && active !== document.body) {
-            active.blur();
-          }
-          return;
+      // Local bindings first, then any ENABLED global one. A global shortcut the
+      // user switched off must not fire here either: the global map is matched
+      // in-app as well, so leaving it live would make the switch look broken to
+      // anyone who tries it with the window focused.
+      const bindings = inAppShortcutBindings(
+        localShortcuts,
+        shortcuts,
+        disabledGlobalShortcuts,
+      );
+      for (const { action, accel } of bindings) {
+        if (!eventMatchesShortcut(e, accel)) continue;
+        if (!runShortcutAction(action)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active !== document.body) {
+          active.blur();
         }
+        return;
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -204,7 +198,7 @@ export function useGlobalShortcuts(): void {
       return () => window.removeEventListener("keydown", onKey, true);
     }
 
-    void syncGlobalShortcuts(shortcuts);
+    void syncGlobalShortcuts(shortcuts, disabledGlobalShortcuts);
     return () => {
       window.removeEventListener("keydown", onKey, true);
       registerGeneration += 1;
@@ -212,5 +206,5 @@ export function useGlobalShortcuts(): void {
         .then((m) => m.unregisterAll())
         .catch(() => {});
     };
-  }, [hydrated, localShortcuts, shortcuts]);
+  }, [hydrated, localShortcuts, shortcuts, disabledGlobalShortcuts]);
 }

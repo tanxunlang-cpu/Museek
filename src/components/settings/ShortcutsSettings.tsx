@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { RotateCcw } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
-import { SettingsCard } from "@/components/settings/SettingsCard";
+import { Switch } from "@/components/ui/switch";
+import { SettingsCard, SettingRow } from "@/components/settings/SettingsCard";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useT } from "@/lib/i18n";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import {
+  SHORTCUT_ACTIONS,
   formatHeldShortcut,
   formatShortcut,
   hasForbiddenModifier,
@@ -69,6 +70,21 @@ const ROWS: ShortcutRow[] = [
 
 type Recording = { action: ShortcutAction; slot: ShortcutSlot };
 
+/**
+ * Column widths, shared by the header and every row so the two cannot drift.
+ *
+ * The keycap and the switch get SEPARATE tracks. Sharing one flex row made the
+ * switch's position depend on how long the combo next to it was, so the toggles
+ * did not line up vertically down the column. The keycap track is right-aligned
+ * (combos of different lengths share a right edge) and the switch track is
+ * left-aligned, which together keep both edges perfectly straight.
+ */
+const COLUMN_CLASS = {
+  local: "w-[9rem]",
+  global: "w-[11rem]",
+  toggle: "w-[2.75rem]",
+} as const;
+
 function Keycap({
   children,
   active,
@@ -99,19 +115,48 @@ function Keycap({
 function ColumnLabel({
   label,
   hint,
+  onReset,
+  resetLabel,
 }: {
   label: string;
   hint: string;
+  /** Present when this column has its own "restore defaults" affordance. */
+  onReset?: () => void;
+  resetLabel?: string;
 }) {
+  // The reset button is absolutely positioned rather than laid out beside the
+  // label. As a flex sibling it consumed part of the centring, so the TEXT
+  // landed left of the column's true centre and looked misaligned against the
+  // keycaps below. Taking it out of flow centres the label on its own, and the
+  // button still sits at the column's right edge.
   return (
-    <Tooltip delayDuration={400}>
-      <TooltipTrigger asChild>
-        <span className="text-[11px] font-medium text-muted-foreground">
-          {label}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs text-xs">{hint}</TooltipContent>
-    </Tooltip>
+    <span className="relative flex w-full items-center justify-center">
+      <Tooltip delayDuration={400}>
+        <TooltipTrigger asChild>
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-xs">{hint}</TooltipContent>
+      </Tooltip>
+      {onReset ? (
+        <Tooltip delayDuration={400}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onReset}
+              aria-label={resetLabel}
+              className="absolute right-0 inline-flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <RotateCcw size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs">
+            {resetLabel}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </span>
   );
 }
 
@@ -119,8 +164,17 @@ export function ShortcutsSettings() {
   const t = useT();
   const shortcuts = useSettingsStore((s) => s.shortcuts);
   const localShortcuts = useSettingsStore((s) => s.localShortcuts);
+  const disabledGlobalShortcuts = useSettingsStore(
+    (s) => s.disabledGlobalShortcuts,
+  );
   const setShortcut = useSettingsStore((s) => s.setShortcut);
   const setLocalShortcut = useSettingsStore((s) => s.setLocalShortcut);
+  const setGlobalShortcutEnabled = useSettingsStore(
+    (s) => s.setGlobalShortcutEnabled,
+  );
+  const setAllGlobalShortcutsEnabled = useSettingsStore(
+    (s) => s.setAllGlobalShortcutsEnabled,
+  );
   const resetShortcuts = useSettingsStore((s) => s.resetShortcuts);
   const [recording, setRecording] = useState<Recording | null>(null);
   const [draft, setDraft] = useState("");
@@ -322,39 +376,73 @@ export function ShortcutsSettings() {
     return accel ? formatShortcut(accel) : t("shortcuts.unset");
   };
 
+  // A global hotkey is "live" only when it has a binding AND is not switched
+  // off. The master switch reflects whether any are live.
+  const boundGlobals = SHORTCUT_ACTIONS.filter((a) => shortcuts[a]);
+  const enabledGlobals = boundGlobals.filter(
+    (a) => !disabledGlobalShortcuts.includes(a),
+  );
+  const globalEnabled = enabledGlobals.length > 0;
+
   return (
-    <ScrollArea className="h-full">
-      <div className="pr-3 pb-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <p className="px-1 text-xs text-muted-foreground">
-            {t("shortcuts.desc")}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 h-8"
-            onClick={() => resetShortcuts()}
-          >
-            <RotateCcw size={14} className="mr-1.5" />
-            {t("shortcuts.reset")}
-          </Button>
-        </div>
+    // The page itself does not scroll: the description and the master switch
+    // stay put, and only the list scrolls. Nesting the whole panel in a
+    // ScrollArea put the scrollbar on the page and let the header scroll away.
+    <div className="flex h-full flex-col gap-3">
+      <p className="shrink-0 px-1 text-xs text-muted-foreground">
+        {t("shortcuts.desc")}
+      </p>
+
+      {/* Master switch. Global hotkeys are the ones that can clash with other
+          applications, so this is the quick escape hatch when one does. */}
+      <div className="shrink-0">
         <SettingsCard>
-          <div className="flex items-center gap-3 px-3.5 py-1.5">
-            <span className="min-w-0 flex-1" />
-            <div className="flex w-[8.5rem] justify-end">
-              <ColumnLabel
-                label={t("shortcuts.scopeLocal")}
-                hint={t("shortcuts.localHint")}
+          <SettingRow
+            title={t("shortcuts.globalMasterTitle")}
+            desc={t("shortcuts.globalMasterDesc")}
+            control={
+              <Switch
+                checked={globalEnabled}
+                onCheckedChange={setAllGlobalShortcutsEnabled}
               />
+            }
+          />
+        </SettingsCard>
+      </div>
+
+      {/* Only this scrolls. `min-h-0` is what lets a flex child actually shrink
+          below its content height so the ScrollArea can take over. */}
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="pb-1 pr-3">
+          <SettingsCard>
+            {/* Column header. The two key columns carry their own "restore
+                defaults" affordance, so resetting one column never touches the
+                other. Widths are shared with the rows below via COLUMN_CLASS so
+                the header cannot drift out of alignment. */}
+            <div className="flex items-center gap-3 px-3.5 py-1.5">
+              <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">
+                {t("shortcuts.columnAction")}
+              </span>
+              <div className={cn("flex justify-center", COLUMN_CLASS.local)}>
+                <ColumnLabel
+                  label={t("shortcuts.scopeLocal")}
+                  hint={t("shortcuts.localHint")}
+                  onReset={() => resetShortcuts("local")}
+                  resetLabel={t("shortcuts.resetLocal")}
+                />
+              </div>
+              <div className={cn("flex justify-center", COLUMN_CLASS.global)}>
+                <ColumnLabel
+                  label={t("shortcuts.scopeGlobal")}
+                  hint={t("shortcuts.globalHint")}
+                  onReset={() => resetShortcuts("global")}
+                  resetLabel={t("shortcuts.resetGlobal")}
+                />
+              </div>
+              {/* Empty track above the switches, so the header spans the same
+                  grid as the rows below. */}
+              <span className={COLUMN_CLASS.toggle} aria-hidden />
             </div>
-            <div className="flex w-[11rem] justify-end">
-              <ColumnLabel
-                label={t("shortcuts.scopeGlobal")}
-                hint={t("shortcuts.globalHint")}
-              />
-            </div>
-          </div>
           {ROWS.map((row) => (
             <div
               key={row.titleKey}
@@ -365,18 +453,28 @@ export function ShortcutsSettings() {
               </span>
               {"staticKeys" in row ? (
                 <>
-                  <div className="flex w-[8.5rem] flex-wrap justify-end gap-1">
+                  <div
+                    className={cn(
+                      "flex flex-wrap justify-end gap-1",
+                      COLUMN_CLASS.local,
+                    )}
+                  >
                     {row.staticKeys.map((label) => (
                       <Keycap key={label}>{label}</Keycap>
                     ))}
                   </div>
-                  <div className="flex w-[11rem] justify-end">
+                  <div
+                    className={cn("flex justify-end", COLUMN_CLASS.global)}
+                  >
                     <span className="text-[11px] text-muted-foreground">—</span>
                   </div>
+                  <span className={COLUMN_CLASS.toggle} aria-hidden />
                 </>
               ) : (
                 <>
-                  <div className="flex w-[8.5rem] justify-end">
+                  <div
+                    className={cn("flex justify-end", COLUMN_CLASS.local)}
+                  >
                     <Keycap
                       active={
                         recording?.action === row.action &&
@@ -392,24 +490,59 @@ export function ShortcutsSettings() {
                       )}
                     </Keycap>
                   </div>
-                  <div className="flex w-[11rem] justify-end">
+                  <div
+                    className={cn("flex justify-end", COLUMN_CLASS.global)}
+                  >
                     <Keycap
                       active={
                         recording?.action === row.action &&
                         recording.slot === "global"
                       }
-                      muted={!shortcuts[row.action]}
+                      muted={
+                        !shortcuts[row.action] ||
+                        disabledGlobalShortcuts.includes(row.action)
+                      }
                       onClick={() => startRecording(row.action, "global")}
                     >
                       {bindingLabel(row.action, "global", shortcuts[row.action])}
                     </Keycap>
                   </div>
+                  {/* Its own fixed track, so the toggle column lines up
+                      regardless of the combo length to its left. */}
+                  <div className={cn("flex justify-start", COLUMN_CLASS.toggle)}>
+                    <Tooltip delayDuration={400}>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Switch
+                            className="scale-[0.7]"
+                            checked={
+                              Boolean(shortcuts[row.action]) &&
+                              !disabledGlobalShortcuts.includes(row.action)
+                            }
+                            disabled={!shortcuts[row.action]}
+                            onCheckedChange={(v) =>
+                              setGlobalShortcutEnabled(row.action, v)
+                            }
+                            aria-label={t("shortcuts.globalToggleLabel", {
+                              action: t(row.titleKey),
+                            })}
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-xs">
+                        {shortcuts[row.action]
+                          ? t("shortcuts.globalToggleHint")
+                          : t("shortcuts.globalToggleUnset")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </>
               )}
             </div>
           ))}
-        </SettingsCard>
-      </div>
-    </ScrollArea>
+          </SettingsCard>
+        </div>
+      </ScrollArea>
+    </div>
   );
 }
