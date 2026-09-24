@@ -10,6 +10,18 @@ export type Translate = (
   vars?: Record<string, string | number>,
 ) => string;
 
+/**
+ * Failure reported when the media element accepted a source but nothing ever
+ * arrived.
+ *
+ * Android's WebView can leave `play()` pending forever for a host that does not
+ * resolve, instead of firing an `error` event, so waiting on the element alone
+ * costs the whole 10s start timeout and then gives up. The player raises this
+ * instead and treats it exactly like an expired URL: invalidate and resolve
+ * again, which picks another source/quality.
+ */
+export const AUDIO_STALLED = "Audio stalled before playback started";
+
 /** `MediaError.code` values, per the HTML spec. */
 export const MEDIA_ERR_ABORTED = 1;
 export const MEDIA_ERR_NETWORK = 2;
@@ -74,6 +86,11 @@ export function formatRemotePlayError(raw: string, t: Translate): string {
   if (isIgnorablePlayError(raw)) {
     return raw;
   }
+  // A source that never delivered a byte is a source problem, not a mystery, and
+  // the advice ("switch sources") is the same one the expired-URL branch gives.
+  if (raw === AUDIO_STALLED) {
+    return t("player.err.unreachable");
+  }
   // Already-localized copy must pass through unchanged. `_handleError` can
   // receive a message another layer already formatted, and re-wrapping it
   // produced "播放失败：网络连接失败，请检查网络或换音源".
@@ -83,6 +100,7 @@ export function formatRemotePlayError(raw: string, t: Translate): string {
     t("player.err.unknown"),
     t("player.err.urlExpired"),
     t("player.err.rateLimited"),
+    t("player.err.unreachable"),
     t("player.err.network", { msg: "" }),
   ];
   if (alreadyLocalized.includes(raw)) {

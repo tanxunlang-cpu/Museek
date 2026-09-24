@@ -4,6 +4,7 @@ import { t } from "@/lib/i18n";
 import { qualityCandidates, qualityUpgradeCandidates, QUALITY_LADDER } from "@/lib/quality";
 import { toLxMusicInfo } from "@/lib/lxMusicInfo";
 import { looksLikeRealAudio } from "@/lib/audioUrlProbe";
+import { isHostTrusted } from "@/lib/hostHealth";
 import { createAsyncCache } from "@/lib/cache";
 import { getWyBuiltinMusicUrl } from "@/lib/playlists/wyUrl";
 import type { SourceScript, SourceRegistry, LxRequestPayload } from "@/types/source";
@@ -194,6 +195,37 @@ export class SourceRunner {
         return;
       }
 
+      // A URL whose host served real audio before is worth a short wait over one
+      // we know nothing about. Without this the race settles on whichever source
+      // answers first, which on a device where the imported scripts are stale is
+      // always the broken one — the reachable fallback is still in flight.
+      //
+      // The wait is bounded two ways: the grace timer, and the wave itself, which
+      // still resolves with the merely-plausible URL once every source is done.
+      const GRACE_MS = 1_500;
+      let fallbackUrl = "";
+      let graceTimer: number | undefined;
+
+      const cleanup = () => {
+        if (graceTimer !== undefined) window.clearTimeout(graceTimer);
+        graceTimer = undefined;
+      };
+
+      const settle = (url: string) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(url);
+      };
+
+      const armGrace = () => {
+        if (settled || graceTimer !== undefined) return;
+        graceTimer = window.setTimeout(() => {
+          if (!fallbackUrl) return;
+          settle(fallbackUrl);
+        }, GRACE_MS);
+      };
+
       const tryOne = async (id: string): Promise<Outcome> => {
         if (settled) return { ok: false };
         const session = this.sessions.get(id);
@@ -232,13 +264,23 @@ export class SourceRunner {
         void tryOne(id).then((outcome) => {
           if (settled) return;
           if (outcome.ok) {
-            settled = true;
-            resolve(outcome.url);
+            if (isHostTrusted(outcome.url)) {
+              settle(outcome.url);
+              return;
+            }
+            // Never overwrite a preferred candidate with a later unknown one.
+            if (!fallbackUrl) fallbackUrl = outcome.url;
+            armGrace();
             return;
           }
           remaining -= 1;
           if (remaining === 0) {
             settled = true;
+            cleanup();
+            if (fallbackUrl) {
+              resolve(fallbackUrl);
+              return;
+            }
             reject(new Error(t("sources.err.allFailed")));
           }
         });

@@ -168,3 +168,11 @@ Do not switch the All Categories filter (or assign tracks) just because a catego
 
 
 
+
+## Trusting `HTMLMediaElement.play()` to report a dead source
+
+Do not treat `audio.play()` resolving — or staying pending — as evidence about a remote play URL. On Android a URL whose host does not resolve leaves the element at `readyState 0`, `networkState NETWORK_EMPTY` and `paused false`, with no `error` event and a promise that never settles, so the element cannot tell a dead source from a slow one and the whole start budget is wasted before anything tries another source. Keep the liveness decision in `lib/audioUrlProbe.ts` / `lib/hostHealth.ts` (where the native HTTP client can report the failure immediately), and keep `awaitHtmlPlayback`'s stall budget as the backstop. Do not shorten that budget to "fail fast on slow networks", and do not make timeouts mark a host dead: a slow CDN must keep working, and only a connection-level error (DNS, refused, unreachable) proves the host is the problem.
+
+## Letting the source race settle on the first answer regardless of host
+
+Do not resolve a source race with the first URL that passes the probe. An aggregator script that answers in 50ms with an unreachable host beats the built-in platform resolver every time, which is exactly how "song info shows but nothing plays" happened. Prefer a trusted host (`isHostTrusted`: proven live this session, or a known platform CDN) and hold a merely-plausible URL for a bounded grace period while a better candidate is still in flight.

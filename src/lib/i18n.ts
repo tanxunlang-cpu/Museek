@@ -790,6 +790,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "player.err.unknown": "未知错误",
     "player.err.urlExpired": "播放链接已失效，请重试或换音源",
     "player.err.rateLimited": "请求过于频繁，请稍后重试",
+    "player.err.unreachable": "音源无法连接，请检查网络或换音源",
     "player.failedDetail": "播放失败：{msg}",
     "player.noSource": "尚未启用音源，无法播放",
     "player.goImport": "去导入",
@@ -1615,6 +1616,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "player.err.unknown": "Unknown error",
     "player.err.urlExpired": "Play link expired — retry or switch sources",
     "player.err.rateLimited": "Too many requests — try again shortly",
+    "player.err.unreachable":
+      "Source unreachable — check your connection or switch sources",
     "player.failedDetail": "Playback failed: {msg}",
     "player.noSource": "No source enabled — can't play",
     "player.goImport": "Import",

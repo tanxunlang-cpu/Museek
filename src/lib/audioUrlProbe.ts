@@ -1,5 +1,11 @@
 import { looksLikeAudioBytes, looksLikeNonAudioBytes } from "@/lib/audioBytes"
 import { cdnHeadersForUrl } from "@/lib/cdnHeaders"
+import {
+  isConnectionLevelError,
+  isHostKnownDead,
+  markHostDead,
+  markHostLive,
+} from "@/lib/hostHealth"
 import { httpFetch } from "@/lib/http"
 import type { MusicInfo, Quality } from "@/types/music"
 
@@ -33,6 +39,15 @@ const LENGTH_CACHE_MAX = 120
 
 /** Sentinel: probe proved the body is not audio. */
 const REJECT = 0
+/**
+ * Sentinel: the request never reached an origin (DNS/refused/unreachable).
+ *
+ * Distinct from `REJECT` only to keep the two decisions readable: both make the
+ * caller drop the URL. This one also writes the host off for the session — see
+ * `lib/hostHealth` — which is what stops a dead source from winning every later
+ * race with the same unreachable URL.
+ */
+const DEAD = -1
 
 const lengthCache = new Map<string, { len: number | null; expires: number }>()
 const lengthInflight = new Map<string, Promise<number | null>>()
@@ -88,8 +103,21 @@ function timeoutSignal(ms: number): AbortSignal {
   return ac.signal
 }
 
+/**
+ * Probe one URL. Returns a byte length, `REJECT` for a body that is not audio,
+ * `DEAD` when the host could not be reached at all, or `null` when the probe is
+ * inconclusive (in which case the URL is trusted, because a CDN that blocks
+ * probes may still stream perfectly).
+ */
 async function fetchContentLength(url: string): Promise<number | null> {
+  // Already proven unreachable (a previous probe, or the failed play that got us
+  // here). Fail closed without spending another request on it: the caller's job
+  // now is to try a different source.
+  if (isHostKnownDead(url)) return DEAD
+
   const cdn = cdnHeadersForUrl(url)
+  let sawConnectionFailure = false
+
   try {
     const head = await httpFetch(url, {
       method: "HEAD",
@@ -101,9 +129,11 @@ async function fetchContentLength(url: string): Promise<number | null> {
       const len = parseInt(head.headers.get("content-length") || "", 10)
       if (len > 0) return len
     }
-  } catch {
-    /* fall through */
+  } catch (err) {
+    if (isConnectionLevelError(err)) sawConnectionFailure = true
+    /* otherwise fall through: many origins answer GET but not HEAD */
   }
+
   try {
     // Small Range probe: sniff magic bytes when the CDN honours Range (206).
     // Never arrayBuffer() a full-song 200 — that would download the track during race.
@@ -137,8 +167,17 @@ async function fetchContentLength(url: string): Promise<number | null> {
       }
     }
     if (len > 1) return len
-  } catch {
-    /* fail open */
+  } catch (err) {
+    if (isConnectionLevelError(err)) sawConnectionFailure = true
+    /* otherwise fail open */
+  }
+
+  if (sawConnectionFailure) {
+    // Both the HEAD and the ranged GET failed before reaching an origin, so the
+    // host — not this particular path — is the problem. Remember it and fail
+    // closed so the source race and the quality ladder move on.
+    markHostDead(url)
+    return DEAD
   }
   return null
 }
@@ -177,13 +216,23 @@ export async function looksLikeRealAudio(
   if (isCancelled?.()) return false
   // Explicit non-audio body (HTML/JSON error page, etc.).
   if (len === REJECT) return false
+  // Nothing can be fetched from this host, so no amount of retrying this URL
+  // will produce sound. Rejecting here is what makes the race fall through to a
+  // source that works instead of handing the media element a URL that hangs.
+  if (len === DEAD) return false
   if (len == null) return true
 
   const known = parseSizeToBytes(song.meta._qualitys?.[quality]?.size)
-  if (known && known > 0) return len >= known * 0.5
-
-  const secs = intervalToSeconds(song.interval)
-  if (secs > 0) return len >= BITRATE_KBPS[quality] * 125 * secs * 0.5
-
-  return len >= MIN_AUDIO_BYTES
+  const accepted =
+    known && known > 0
+      ? len >= known * 0.5
+      : intervalToSeconds(song.interval) > 0
+        ? len >=
+          BITRATE_KBPS[quality] * 125 * intervalToSeconds(song.interval) * 0.5
+        : len >= MIN_AUDIO_BYTES
+  // A host that has served real bytes is worth preferring over one we know
+  // nothing about, which is what keeps a race from settling on a source whose
+  // host later turns out to be unreachable.
+  if (accepted) markHostLive(url)
+  return accepted
 }

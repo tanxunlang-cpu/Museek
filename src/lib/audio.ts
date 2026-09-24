@@ -1,5 +1,5 @@
 import { cdnFetchStrategies } from "@/lib/cdnHeaders";
-import { describeMediaError } from "@/lib/playError";
+import { AUDIO_STALLED, describeMediaError } from "@/lib/playError";
 import {
   looksLikeNonAudioBytes,
   maybeGunzipAudio,
@@ -331,6 +331,72 @@ class AudioPlayer {
     return (
       /^(?:asset|blob|data):/i.test(url) || url.includes("asset.localhost")
     );
+  }
+
+  /**
+   * Resolve once the element is actually playing, or reject when it clearly
+   * never will.
+   *
+   * `HTMLMediaElement.play()` is not trustworthy on its own here: for an
+   * unreachable host Android's WebView was measured to leave the promise
+   * pending forever with `readyState 0`, `networkState 0` and no `error` event,
+   * so a dead play URL looked identical to a slow one until the store's 10s
+   * start timeout — and the retry that would have picked another source never
+   * ran.
+   *
+   * Nor does a resolved promise prove sound: Chromium resolves `play()` as soon
+   * as playback is *permitted*, so an element whose stream never arrives sits at
+   * `readyState 1` with `paused === false` — enough for the UI to claim it is
+   * playing. Playback has really begun only once the element reports progress
+   * (ReadyState >= HAVE_CURRENT_DATA) or has been resumed from a paused state,
+   * so anything else lets the stall budget run and turns the dead source into a
+   * normal rejection the store already knows how to recover from.
+   */
+  private awaitHtmlPlayback(playPromise: Promise<void>): Promise<void> {
+    const audio = this.element;
+    const stallMs = this.isAssetLikeUrl(this.sourceUrl) ? 20_000 : 6_000;
+    return new Promise<void>((resolve, reject) => {
+      let done = false;
+      let playAccepted = false;
+      const finish = (error?: Error) => {
+        if (done) return;
+        done = true;
+        window.clearTimeout(timer);
+        audio.removeEventListener("playing", onPlaying);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onPlaying = () => finish();
+      const timer = window.setTimeout(() => {
+        if (audio.error) {
+          finish(
+            new Error(
+              describeMediaError(audio.error.code, audio.error.message) ??
+                AUDIO_STALLED,
+            ),
+          );
+          return;
+        }
+        // A paused element that is not at the end was resumed deliberately
+        // (CUE seek-in-place): the play() promise resolving is enough for it.
+        const resumedInPlace = playAccepted && !audio.paused;
+        if (audio.readyState >= 2 || resumedInPlace) {
+          finish();
+          return;
+        }
+        finish(new Error(AUDIO_STALLED));
+      }, stallMs);
+      audio.addEventListener("playing", onPlaying);
+      playPromise.then(
+        () => {
+          playAccepted = true;
+          // Enough data to actually render audio: the start succeeded. Anything
+          // less keeps waiting until either progress arrives or the budget ends.
+          if (audio.readyState >= 2) finish();
+        },
+        (err) => finish(err instanceof Error ? err : new Error(String(err))),
+      );
+    });
   }
 
   private getWebContext(): AudioContext {
@@ -669,7 +735,15 @@ class AudioPlayer {
       await this.waitHtmlSeekSettled();
       const html = this.audio;
       if (!html) return;
-      await html.play();
+      // Already failed: `play()` on a broken element can hang instead of
+      // rejecting, so surface it here and let the caller resolve a fresh URL.
+      if (html.error) {
+        throw new Error(
+          describeMediaError(html.error.code, html.error.message) ??
+            AUDIO_STALLED,
+        );
+      }
+      await this.awaitHtmlPlayback(html.play());
       return;
     }
     if (!this.sourceUrl) throw new Error("No audio source");
