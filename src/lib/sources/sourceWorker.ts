@@ -16,7 +16,20 @@ function errorMessage(err: unknown): string {
   return String(err ?? "init failed")
 }
 
+function installConsoleStubs(): void {
+  if (typeof console !== "undefined") {
+    const noop = () => {}
+    const c = console as unknown as Record<string, unknown>
+    if (typeof c.group !== "function") c.group = noop
+    if (typeof c.groupEnd !== "function") c.groupEnd = noop
+    if (typeof c.groupCollapsed !== "function") c.groupCollapsed = noop
+    if (typeof c.time !== "function") c.time = noop
+    if (typeof c.timeEnd !== "function") c.timeEnd = noop
+  }
+}
+
 function installNetworkStubs(): void {
+  installConsoleStubs()
   const blocked = (name: string) => () => {
     throw new Error(`${name} ${DISABLED}`)
   }

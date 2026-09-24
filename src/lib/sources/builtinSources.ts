@@ -20,22 +20,33 @@ export function getBuiltinSourceScripts(): SourceScript[] {
     const meta = parseScriptMeta(rawScript);
     // Verified functional sources from network probe testing
     const filenameLower = filename.toLowerCase();
+    const isBroken =
+      filenameLower.includes("独家音源") ||
+      filenameLower.includes("稳定版音源") ||
+      filenameLower.includes("统一音乐源") ||
+      filenameLower.includes("聚合api接口") ||
+      filenameLower.includes("hello world") ||
+      filenameLower.includes("𝖧౿ᥣᥣ𝗈");
+
     const isVerifiedWorking =
-      filenameLower.includes("k×h") ||
-      filenameLower.includes("玉宁熙") ||
-      filenameLower.includes("hywmusic") ||
-      filenameLower.includes("墨澜") ||
-      filenameLower.includes("星澜") ||
-      filenameLower.includes("stellarwave") ||
-      filenameLower.includes("xinghai") ||
-      filenameLower.includes("星海") ||
-      filenameLower.includes("溯音") ||
-      filenameLower.includes("念心") ||
-      filenameLower.includes("忆音") ||
-      filenameLower.includes("收集") ||
-      filenameLower.includes("Hei Music") ||
-      filenameLower.includes("西瓜") ||
-      filenameLower.includes("非常刀");
+      !isBroken &&
+      (filenameLower.includes("裤佬") ||
+        filenameLower.includes("k×h") ||
+        filenameLower.includes("全豆要") ||
+        filenameLower.includes("音乐下载器") ||
+        filenameLower.includes("玉宁熙") ||
+        filenameLower.includes("幻音") ||
+        filenameLower.includes("念心") ||
+        filenameLower.includes("忆音") ||
+        filenameLower.includes("溯音") ||
+        filenameLower.includes("hei music") ||
+        filenameLower.includes("西瓜") ||
+        filenameLower.includes("非常刀") ||
+        filenameLower.includes("gdstudio") ||
+        filenameLower.includes("stellarwave") ||
+        filenameLower.includes("xinghai") ||
+        filenameLower.includes("星海") ||
+        filenameLower.includes("墨澜"));
 
     // Clean up stable ID based on filename
     const safeId =
@@ -57,7 +68,25 @@ export function getBuiltinSourceScripts(): SourceScript[] {
   }
 
   // Rank priorities: top tested reliable multi-platform sources first
-  const priorityKeywords = ["k×h", "玉宁熙", "hywmusic", "墨澜", "星澜", "stellarwave", "xinghai", "星海", "溯音"];
+  const priorityKeywords = [
+    "裤佬",
+    "k×h",
+    "全豆要",
+    "音乐下载器",
+    "玉宁熙",
+    "幻音",
+    "念心",
+    "忆音",
+    "溯音",
+    "hei music",
+    "西瓜",
+    "非常刀",
+    "gdstudio",
+    "stellarwave",
+    "xinghai",
+    "星海",
+    "墨澜",
+  ];
   const getRank = (name: string, file: string) => {
     const s = (name + " " + file).toLowerCase();
     for (let i = 0; i < priorityKeywords.length; i++) {
