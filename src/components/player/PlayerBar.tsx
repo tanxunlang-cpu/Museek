@@ -236,7 +236,6 @@ export function PlayerBar() {
               )}
               action="desktopLyrics"
             >
-<<<<<<< HEAD
               <Button
                 variant="ghost"
                 size="icon"
@@ -251,48 +250,14 @@ export function PlayerBar() {
                 }
                 disabled={desktopLyricsControlsDisabled}
               >
-                {desktopLyricsVisible ? (
-                  <CaptionsOff size={16} />
-                ) : (
-                  <Captions size={16} />
-                )}
+                <IconSwap
+                  active={desktopLyricsVisible}
+                  inactive={<Captions size={16} />}
+                  activeNode={<CaptionsOff size={16} />}
+                />
               </Button>
             </ShortcutTooltip>
           </div>
-=======
-              <MicVocal size={16} />
-            </Button>
-          </ShortcutTooltip>
-          <ShortcutTooltip
-            label={t(
-              desktopLyricsVisible
-                ? "player.desktopLyricsClose"
-                : "player.desktopLyrics",
-            )}
-            action="desktopLyrics"
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-9 w-9 shrink-0 icon-hover-captions",
-                desktopLyricsVisible && "text-primary",
-              )}
-              onClick={() =>
-                void (desktopLyricsVisible
-                  ? hideDesktopLyrics()
-                  : openDesktopLyrics())
-              }
-              disabled={desktopLyricsControlsDisabled}
-            >
-              <IconSwap
-                active={desktopLyricsVisible}
-                inactive={<Captions size={16} />}
-                activeNode={<CaptionsOff size={16} />}
-              />
-            </Button>
-          </ShortcutTooltip>
->>>>>>> upstream/main
           <Button
             variant="ghost"
             size="icon"
