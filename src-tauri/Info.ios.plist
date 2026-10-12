@@ -4,6 +4,10 @@
 <dict>
   <key>CFBundleDisplayName</key>
   <string>Museek</string>
+  <key>CFBundleShortVersionString</key>
+  <string>3.11.4</string>
+  <key>CFBundleVersion</key>
+  <string>3.11.4</string>
   <key>CFBundleDevelopmentRegion</key>
   <string>zh_CN</string>
   <key>CFBundleLocalizations</key>

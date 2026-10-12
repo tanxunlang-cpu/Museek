@@ -77,14 +77,17 @@ jobs:
           
           keytool -genkeypair -v -keystore release.jks -alias museek -keyalg RSA -keysize 2048 -validity 10000 -storepass museek123 -keypass museek123 -dname "CN=Museek, OU=App, O=Museek, C=CN"
 
+          APP_VER=$(node -p "require('./package.json').version")
           find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" | while read -r apk; do
             filename=$(basename "$apk")
             if [[ "$filename" == *"unsigned"* ]]; then
               signed_name="${filename//-unsigned/}"
               echo "Signing $filename -> $signed_name..."
               $BUILD_TOOLS_DIR/apksigner sign --ks release.jks --ks-pass pass:museek123 --key-pass pass:museek123 --ks-key-alias museek --out "output-apks/$signed_name" "$apk"
+              cp "output-apks/$signed_name" "output-apks/Museek-${APP_VER}.apk"
             else
-              cp "$apk" output-apks/
+              cp "$apk" "output-apks/$filename"
+              cp "$apk" "output-apks/Museek-${APP_VER}.apk"
             fi
           done
 
