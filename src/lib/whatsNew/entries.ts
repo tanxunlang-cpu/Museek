@@ -17,6 +17,280 @@ export type WhatsNewRelease = {
 
 /** Built-in bilingual release notes keyed by package.json version (no leading v). */
 const ENTRIES: Record<string, Record<Lang, WhatsNewCopy>> = {
+  "3.11.4": {
+    zh: {
+      sections: [
+        {
+          title: "📝 歌词",
+          bullets: [
+            "修复：部分歌手的歌曲在其他平台搜不到歌词（例如 QQ 音乐的日语歌切到网易云/酷狗时显示无歌词）",
+            "原因是同一个歌手在不同平台的名字不一样（QQ 音乐叫「爱缪」，网易云叫「あいみょん」），现在会先确认平台上的写法再匹配",
+          ],
+        },
+      ],
+    },
+    en: {
+      sections: [
+        {
+          title: "📝 Lyrics",
+          bullets: [
+            "Fix: lyrics could not be found on other platforms for some artists (a Japanese song on QQ Music showed no lyrics when switching to NetEase/KuGou)",
+            "The same artist is named differently per platform (爱缪 on QQ Music, あいみょん on NetEase); the platform's own spelling is now resolved before matching",
+          ],
+        },
+      ],
+    },
+  },
+  "3.11.3": {
+    zh: {
+      sections: [
+        {
+          title: "🍎 macOS 修复",
+          bullets: [
+            "修复：主窗口的阴影有时会消失（启动后、以及从迷你播放切回主窗口时），现在会稳定显示",
+          ],
+        },
+        {
+          title: "🎤 桌面歌词",
+          bullets: [
+            "修复：未锁定时悬停歌词，有时不显示「抓手」光标",
+            "修复：拖动歌词时光标会变成普通箭头，现在全程保持「抓紧」的手型",
+          ],
+        },
+      ],
+    },
+    en: {
+      sections: [
+        {
+          title: "🍎 macOS fixes",
+          bullets: [
+            "Fix: the main window's shadow could disappear — at launch, and when returning from the mini player; it is now reliable",
+          ],
+        },
+        {
+          title: "🎤 Desktop lyrics",
+          bullets: [
+            "Fix: hovering the lyrics while unlocked sometimes showed no grab cursor",
+            "Fix: dragging the lyrics turned the cursor into the default arrow; the closed hand is now kept for the whole drag",
+          ],
+        },
+      ],
+    },
+  },
+  "3.11.2": {
+    zh: {
+      sections: [
+        {
+          title: "🍎 macOS 修复",
+          bullets: [
+            "修复：从迷你播放切回主窗口后，主窗口的阴影会消失",
+            "修复：菜单栏图标显示成一整块实心方块，现在会随浅色/深色模式自动反色，并与旁边的系统图标一致",
+          ],
+        },
+      ],
+    },
+    en: {
+      sections: [
+        {
+          title: "🍎 macOS fixes",
+          bullets: [
+            "Fix: returning from the mini player left the main window with no shadow",
+            "Fix: the menu-bar icon rendered as a solid block; it is now a template image that inverts with light/dark mode and matches the system icons beside it",
+          ],
+        },
+      ],
+    },
+  },
+  "3.11.1": {
+    zh: {
+      sections: [
+        {
+          title: "🎧 Last.fm 喜欢",
+          bullets: [
+            "「收藏」页新增 Last.fm 标签，可以看到你在 Last.fm 上喜欢的全部歌曲（包括在网页版或手机 App 里喜欢的）",
+            "支持搜索歌名或歌手，也可以按最近喜欢 / 歌名 / 歌手排序",
+            "可以「播放全部」，把整个列表加入播放队列",
+            "在「收藏」页收藏或取消收藏歌曲时，会同步更新 Last.fm 上的「喜欢」；可以在「设置 → Last.fm」里关闭",
+          ],
+        },
+        {
+          title: "🐛 播放修复",
+          bullets: [
+            "修复：播放某些平台的歌曲时，有时会播出另一首歌（歌曲不再被交给不支持该平台的音源脚本）",
+            "修复：Last.fm 喜欢列表里的歌曲点击播放会提示「找不到」",
+            "修复：Last.fm 的歌手名和平台写法不同（Aimyon / あいみょん / 爱缪），现在会先向平台询问它自己的写法再匹配",
+            "修复：Last.fm 只记录第一个歌手，而平台会列出全部合作者（元 / 元、鱼骨妹），现在会逐个比对",
+            "已经在「收藏」里的歌曲会直接播放收藏里的那一版，不再去搜索",
+          ],
+        },
+        {
+          title: "✨ 界面",
+          bullets: [
+            "修复：歌曲封面四周有一圈多余的黑边（封面和外框各画了一次边框）",
+            "修复：「足迹」页的悬停提示浮在歌曲上方，现在会跟随鼠标显示",
+            "「收藏」页的 Last.fm 标签与「歌曲」标签样式统一：悬停封面出现播放按钮，右侧按钮样式一致，并新增搜索框与排序",
+            "「加载喜欢的歌曲」按钮改为与「足迹」页一致的刷新图标按钮",
+          ],
+        },
+      ],
+    },
+    en: {
+      sections: [
+        {
+          title: "🎧 Last.fm loves",
+          bullets: [
+            "The Favorites page gains a Last.fm tab showing every track you have loved on Last.fm, including ones loved on the website or in the app",
+            "Search by title or artist, and sort by recently loved / title / artist",
+            "Play all queues the whole list",
+            "Favouriting or un-favouriting a song on the Favorites page also loves or un-loves it on Last.fm; turn this off under Settings → Last.fm",
+          ],
+        },
+        {
+          title: "🐛 Playback fixes",
+          bullets: [
+            "Fix: playing a song from some platforms could play a different song (a song is no longer handed to a source script that does not serve its platform)",
+            "Fix: playing a track from the Last.fm loved list reported \"not found\"",
+            "Fix: Last.fm spells artists differently from the platforms (Aimyon / あいみょん / 爱缪); the platform's own spelling is now asked for before matching",
+            "Fix: Last.fm stores only the first artist while platforms credit everyone (元 / 元、鱼骨妹); each credited artist is now compared",
+            "A song already in your Favorites plays that exact recording instead of being searched for",
+          ],
+        },
+        {
+          title: "✨ Interface",
+          bullets: [
+            "Fix: song covers had a stray black edge on all four sides (the cover and its frame each drew a border)",
+            "Fix: the hover hint on the History page floated above the song; it now follows the pointer",
+            "The Last.fm tab on Favorites now matches the Songs tab: the play button appears on the cover on hover, the trailing actions match, and it gains a search box and sorting",
+            "\"Load loved tracks\" is now the same refresh icon button the History page uses",
+          ],
+        },
+      ],
+    },
+  },
+  "3.11.0": {
+    zh: {
+      sections: [
+        {
+          title: "🎧 Last.fm",
+          bullets: [
+            "新增 Last.fm 集成：可以把收听记录同步到你的 Last.fm 账号",
+            "在「设置 → Last.fm」填入 API Key 与 Secret，再点「连接账号」在浏览器里授权即可",
+            "「足迹」页新增 Last.fm 标签，可查看常听歌手、常听歌曲和最近记录，点击任意一条会在浏览器打开对应的 Last.fm 页面",
+            "支持切换全部时间 / 近 7 天 / 近 1 个月 / 近 3 个月 / 近 12 个月",
+            "可以分别关闭「记录播放」和「正在播放」；断网或 Last.fm 不可用时，记录会先排队，恢复后自动补传",
+            "每次启动后第一次进入 Last.fm 标签会自动刷新一次，加载时显示占位骨架",
+          ],
+        },
+        {
+          title: "📌 记录准确性",
+          bullets: [
+            "修复：本地音乐只有匹配到在线歌曲后，才会以正确的歌手和歌名上报（之前文件名模式下会上报成「01 - 歌名」）",
+            "修复：没有标签的本地文件不再以「未知歌曲 / 未知歌手」上报（这类记录会在 Last.fm 上堆成同一条垃圾记录）",
+            "修复：正在播放状态现在会带上歌曲时长",
+            "修复：一首歌播完后再播同一首，会重新上报正在播放（之前会被静默忽略，Last.fm 上一直挂着上一首）",
+          ],
+        },
+        {
+          title: "✨ 界面",
+          bullets: [
+            "播放栏和歌词页里过长的歌名、歌手名，鼠标悬停时会横向滚动显示完整内容",
+            "「足迹」页的 Last.fm 标签与「歌曲 / 歌手 / 最近」保持一致的排版与筛选栏",
+            "修复：设置侧栏的文字与图标没有垂直居中",
+            "修复：「重新连接」按钮看起来比旁边的按钮大（实际尺寸相同，已统一视觉重量）",
+          ],
+        },
+      ],
+    },
+    en: {
+      sections: [
+        {
+          title: "🎧 Last.fm",
+          bullets: [
+            "New Last.fm integration: sync your listening history to your Last.fm account",
+            "Add your API Key and Secret under Settings → Last.fm, then press Connect account to authorize in your browser",
+            "A new Last.fm tab on the History page shows top artists, top tracks and recent plays; clicking a row opens that page on Last.fm",
+            "Switch between All time / 7 days / 1 month / 3 months / 12 months",
+            "Scrobbling and Now Playing can be toggled separately; if the network or Last.fm is unavailable, plays are queued and sent once it recovers",
+            "The Last.fm tab refreshes once after each launch, with a loading placeholder while it does",
+          ],
+        },
+        {
+          title: "📌 Accuracy",
+          bullets: [
+            "Fix: local music is reported under its real artist and title once matched online (filename mode used to send \"01 - Title\")",
+            "Fix: untagged local files are no longer reported as \"Unknown title / Unknown artist\" (they all collapsed into one junk entry on Last.fm)",
+            "Fix: the Now Playing status now includes the track duration",
+            "Fix: replaying the same song after it finished announces it again (it used to be silently skipped, leaving the previous track stuck on your profile)",
+          ],
+        },
+        {
+          title: "✨ Interface",
+          bullets: [
+            "Long song and artist names scroll horizontally on hover in the player bar and the lyrics page",
+            "The Last.fm tab now matches the layout and filter bar of Songs / Artists / Recent",
+            "Fix: the settings sidebar labels and icons were not vertically centred",
+            "Fix: the Reconnect button looked larger than the button beside it (same size; their visual weight is now matched)",
+          ],
+        },
+      ],
+    },
+  },
+  "3.10.1": {
+    zh: {
+      sections: [
+        {
+          title: "🔁 播放",
+          bullets: [
+            "修复：单曲循环现在会一直循环下去，不再只播一遍就停住",
+            "修复：歌单里只有一首歌时，列表循环和随机播放同样只会播一遍",
+            "这两个问题出现在本地音乐、已缓存音频和 macOS / Linux 上；Windows 在线播放不受影响",
+          ],
+        },
+        {
+          title: "🎵 音源",
+          bullets: [
+            "修复：播放时不再向不支持该平台的音源脚本索取链接",
+            "修复：点播 QQ 音乐等平台的歌曲时，可能播出另一位歌手的同名歌曲",
+            "歌词和封面也遵循同样的规则，不会再配错",
+          ],
+        },
+        {
+          title: "📝 桌面歌词",
+          bullets: [
+            "修复：长句歌词两端的胶囊形状不再被截断成矩形",
+            "切换「显示双行」后，当前句和之后的句子都能保持正确的胶囊形状",
+          ],
+        },
+      ],
+    },
+    en: {
+      sections: [
+        {
+          title: "🔁 Playback",
+          bullets: [
+            "Fix: repeat-one now keeps repeating instead of stopping after a single loop",
+            "Fix: with only one song in the queue, repeat-all and shuffle also stopped after one play",
+            "Both affected local music, cached audio and macOS / Linux; Windows streaming was unaffected",
+          ],
+        },
+        {
+          title: "🎵 Sources",
+          bullets: [
+            "Fix: playback no longer asks source scripts for platforms they do not serve",
+            "Fix: playing a song from QQ Music could play a different artist's song with the same title",
+            "Lyrics and covers follow the same rule, so they no longer mismatch",
+          ],
+        },
+        {
+          title: "📝 Desktop lyrics",
+          bullets: [
+            "Fix: the rounded capsule ends are no longer clipped into a rectangle on long lines",
+            "Toggling Two lines now keeps the capsule shape correct for the current line and the ones after it",
+          ],
+        },
+      ],
+    },
+  },
   "3.10.0": {
     zh: {
       sections: [

@@ -9,10 +9,10 @@ import { createAsyncCache } from "@/lib/cache";
 import { getWyBuiltinMusicUrl } from "@/lib/playlists/wyUrl";
 import type { SourceScript, SourceRegistry, LxRequestPayload } from "@/types/source";
 import { isMobile } from "@/lib/os";
-import type { LyricInfo, MusicInfo, Quality } from "@/types/music";
+import type { LyricInfo, MusicInfo, OnlineSource, Quality } from "@/types/music";
 
-/** Parallel musicUrl probes per wave — 4 on mobile to prevent IPC starvation, 12 on desktop. */
-const MUSIC_URL_WAVE = isMobile() ? 4 : 12;
+/** Parallel musicUrl probes per wave — 6 on mobile to balance speed and IPC load, 12 on desktop. */
+const MUSIC_URL_WAVE = isMobile() ? 6 : 12;
 /** Per-source musicUrl attempt timeout (scripts without their own timeout can hang). */
 const MUSIC_URL_ATTEMPT_MS = 5_000;
 /** Successful play URLs are reusable briefly (CDN links expire; keep TTL short). */
@@ -143,16 +143,72 @@ export class SourceRunner {
 
   // Enabled+loaded sources in UI list order (used for lyric/pic failover and
   // as the musicUrl race participant set).
-  private getOrderedIds(): string[] {
-    return this.registry
+  //
+  // A script's `sources` map is its own statement of which platforms it serves,
+  // so a song must not be handed to a script that does not claim its platform.
+  // Such a script cannot resolve the id it was given and some fall back to
+  // looking the track up BY NAME on their own service — which answers with a
+  // different recording of the same title. The user hears another artist while
+  // the player bar still shows the song they picked.
+  //
+  // Scripts declaring no `sources` at all are kept: they have made no statement
+  // either way, so there is nothing to contradict.
+  //
+  // There is deliberately NO "fall back to everything" when nothing matches.
+  // That fallback re-admitted precisely the scripts this filter exists to
+  // exclude, so a song whose platform no script serves played a different
+  // recording instead of reporting that nothing can serve it. Search is built
+  // into the app for every platform, so browsing a platform you have no script
+  // for is an ordinary situation and it must fail honestly.
+  //
+  // The action filter is applied on top and never falls back: a script that
+  // claims a platform but omits an action from its list has made a specific
+  // statement about that platform, so it is respected instead of overridden.
+  private getOrderedIds(
+    action?: "musicUrl" | "lyric" | "pic",
+    platform?: string,
+  ): string[] {
+    const scripts = this.registry
       .getScripts()
-      .filter((s) => s.enabled && this.sessions.has(s.id))
+      .filter((s) => s.enabled && this.sessions.has(s.id));
+    if (!action || !platform) return scripts.map((s) => s.id);
+
+    return scripts
+      .filter(
+        (s) =>
+          !s.sources ||
+          Object.keys(s.sources).length === 0 ||
+          Boolean(s.sources[platform]),
+      )
+      .filter((s) => {
+        const actions = s.sources?.[platform]?.actions;
+        return !actions?.length || actions.includes(action);
+      })
       .map((s) => s.id);
   }
 
   /** Enabled, loaded source ids in list order — changes when the user edits sources. */
   layoutKey(): string {
     return this.getOrderedIds().join("|");
+  }
+
+  /**
+   * Platforms the enabled, loaded scripts declare support for.
+   *
+   * Needed when a track carries no platform of its own — a Last.fm loved track
+   * is an artist and a title and nothing else — so there is no `source` to
+   * dispatch on. Searching a platform no script serves would only spend a
+   * request to learn it cannot be played.
+   */
+  servedPlatforms(): OnlineSource[] {
+    const out = new Set<OnlineSource>();
+    for (const script of this.registry.getScripts()) {
+      if (!script.enabled || !this.sessions.has(script.id)) continue;
+      for (const key of Object.keys(script.sources ?? {})) {
+        out.add(key as OnlineSource);
+      }
+    }
+    return [...out];
   }
 
   private buildRequest(
@@ -303,8 +359,23 @@ export class SourceRunner {
   }
 
   async getMusicUrl(payload: LxRequestPayload): Promise<string> {
-    const ids = this.getOrderedIds();
-    if (!ids.length) throw new Error(t("sources.err.noEnabled"));
+    const ids = this.getOrderedIds("musicUrl", payload.source);
+    if (!ids.length) {
+      // Distinguish "nothing is enabled" from "nothing serves this platform".
+      // Search is built in for every platform, so browsing one you have no
+      // script for is ordinary; reporting "no enabled sources" would send the
+      // user looking for a problem that is not there.
+      const anyEnabled = this.registry
+        .getScripts()
+        .some((s) => s.enabled && this.sessions.has(s.id));
+      throw new Error(
+        anyEnabled
+          ? t("sources.err.noPlatform", {
+              platform: t(`platform.${payload.source}`),
+            })
+          : t("sources.err.noEnabled"),
+      );
+    }
 
     const quality = (payload.type ?? "128k") as Quality;
     const key = this.musicUrlKey(payload);
@@ -411,7 +482,7 @@ export class SourceRunner {
   }
 
   async getLyric(payload: LxRequestPayload): Promise<LyricInfo | null> {
-    for (const id of this.getOrderedIds()) {
+    for (const id of this.getOrderedIds("lyric", payload.source)) {
       const session = this.sessions.get(id);
       if (!session) continue;
       try {
@@ -428,7 +499,7 @@ export class SourceRunner {
   async getPic(payload: LxRequestPayload): Promise<string | null> {
     const key = `${payload.source}:${payload.info.meta.songId}`;
     return picCache(key, async () => {
-      for (const id of this.getOrderedIds()) {
+      for (const id of this.getOrderedIds("pic", payload.source)) {
         const session = this.sessions.get(id);
         if (!session) continue;
         try {

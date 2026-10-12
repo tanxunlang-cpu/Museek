@@ -27,6 +27,7 @@ import {
   PlatformBadge,
   PLATFORM_BRAND,
 } from "@/components/common/MetaBadges";
+import { MarqueeText } from "@/components/common/MarqueeText";
 import { SongQualityMenu } from "./SongQualityMenu";
 import { PLATFORM_ORDER } from "@/components/common/PlatformTabs";
 import { DownloadSongButton } from "@/components/common/DownloadSongButton";
@@ -144,21 +145,21 @@ export function PlayerBar() {
           {currentSong ? (
             <div className="min-w-0 flex-1 space-y-0.5 sm:space-y-1">
               <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                <p
-                  className="text-xs sm:text-sm font-semibold tracking-tight truncate"
+                <MarqueeText
+                  className="text-xs sm:text-sm font-semibold tracking-tight"
                   title={currentSong.name}
                 >
                   {currentSong.name}
-                </p>
+                </MarqueeText>
                 <PlatformBadge source={currentSong.source} className="hidden sm:inline-flex" />
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                <p
-                  className="text-[11px] sm:text-xs text-muted-foreground truncate min-w-0"
+                <MarqueeText
+                  className="text-[11px] sm:text-xs text-muted-foreground min-w-0"
                   title={currentSong.singer}
                 >
                   {currentSong.singer}
-                </p>
+                </MarqueeText>
                 <SongQualityMenu />
               </div>
             </div>

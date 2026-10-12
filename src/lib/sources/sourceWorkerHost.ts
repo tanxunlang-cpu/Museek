@@ -95,6 +95,15 @@ export class SourceWorkerHost {
   private startInThread(script: SourceScript): Promise<Record<string, unknown> | undefined> {
     this.scriptId = script.id
     const meta = parseScriptMeta(script.rawScript)
+    if (typeof console !== "undefined") {
+      const noop = () => {}
+      const c = console as unknown as Record<string, unknown>
+      if (typeof c.group !== "function") c.group = noop
+      if (typeof c.groupEnd !== "function") c.groupEnd = noop
+      if (typeof c.groupCollapsed !== "function") c.groupCollapsed = noop
+      if (typeof c.time !== "function") c.time = noop
+      if (typeof c.timeEnd !== "function") c.timeEnd = noop
+    }
     return new Promise((resolve, reject) => {
       let settled = false
       let registeredHandler: ((payload: unknown) => Promise<LxRequestResult>) | null = null
@@ -141,18 +150,13 @@ export class SourceWorkerHost {
         }
       }
       if (!settled) {
-        if (registeredHandler) {
-          settled = true
-          resolve(undefined)
-        } else {
-          setTimeout(() => {
-            if (!settled) {
-              settled = true
-              if (registeredHandler) resolve(undefined)
-              else reject(new Error("Script did not register a request handler"))
-            }
-          }, 1000)
-        }
+        setTimeout(() => {
+          if (!settled) {
+            settled = true
+            if (registeredHandler) resolve(undefined)
+            else reject(new Error("Script did not register a request handler"))
+          }
+        }, 1500)
       }
     })
   }

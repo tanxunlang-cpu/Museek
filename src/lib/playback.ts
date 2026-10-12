@@ -14,6 +14,8 @@ import type { MusicInfo, Quality } from "@/types/music"
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
+/** Native fetch budget before falling back to direct stream URL. */
+const CACHE_DOWNLOAD_MS = 10_000
 /** Background warm may take longer (large FLAC / slow CDN) so the next play hits disk. */
 const CACHE_WARM_MS = 120_000
 
@@ -189,6 +191,60 @@ function mimeForQuality(quality: Quality): { ext: string; mime: string } {
   return { ext: "mp3", mime: "audio/mpeg" }
 }
 
+function sniffAudioMime(
+  bytes: Uint8Array,
+  contentType: string | null,
+  fallbackMime: string,
+): string {
+  if (bytes.length >= 4) {
+    if (
+      bytes[0] === 0x66 &&
+      bytes[1] === 0x4c &&
+      bytes[2] === 0x61 &&
+      bytes[3] === 0x43
+    ) {
+      return "audio/flac"
+    }
+    if (
+      bytes[0] === 0x4f &&
+      bytes[1] === 0x67 &&
+      bytes[2] === 0x67 &&
+      bytes[3] === 0x53
+    ) {
+      return "audio/ogg"
+    }
+    if (
+      bytes[0] === 0x52 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x46
+    ) {
+      return "audio/wav"
+    }
+    if (
+      bytes.length >= 8 &&
+      bytes[4] === 0x66 &&
+      bytes[5] === 0x74 &&
+      bytes[6] === 0x79 &&
+      bytes[7] === 0x70
+    ) {
+      return "audio/mp4"
+    }
+    if (
+      (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) ||
+      (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)
+    ) {
+      return "audio/mpeg"
+    }
+  }
+  if (contentType) {
+    const clean = contentType.split(";")[0].trim().toLowerCase()
+    if (clean === "audio/x-flac") return "audio/flac"
+    if (clean.startsWith("audio/")) return clean
+  }
+  return fallbackMime
+}
+
 function acceptAudioBytes(bytes: Uint8Array, contentType: string | null): boolean {
   if (looksLikeNonAudioBytes(bytes)) return false
   if (looksLikeAudioBytes(bytes)) return true
@@ -258,8 +314,10 @@ function warmDiskCache(
 }
 
 /**
- * Prefer on-disk audio cache; otherwise try a timed native download for cache,
- * then fall back to streaming the remote URL (https-upgraded for NetEase).
+ * Prefer on-disk audio cache; otherwise download audio bytes natively via Rust
+ * httpFetch and create an in-memory Blob URL so Android WebView <audio> never
+ * hits cleartext HTTP / mixed-content / hotlink Referer / redirect blocks.
+ * Disk cache write happens asynchronously in the background.
  */
 export async function resolvePlayableSrc(
   song: MusicInfo,
@@ -274,14 +332,41 @@ export async function resolvePlayableSrc(
     if (cached) return cached
   }
 
-  // Upgrade HTTP to HTTPS for major music CDNs that support TLS (avoids WebView mixed-content blocks)
+  // Upgrade HTTP to HTTPS for major music CDNs that support TLS
   let streamUrl = url
-  if (/^http:\/\/(?:[a-zA-Z0-9-]+\.)*(?:126\.net|163\.com|netease|lazyaudio|kuwo\.cn|kugou\.com|kgimg|qq\.com|gtimg\.cn|tencentmusic|migu\.cn)/i.test(url)) {
+  if (
+    /^http:\/\/(?:[a-zA-Z0-9-]+\.)*(?:126\.net|163\.com|netease|lazyaudio|kuwo\.cn|kugou\.com|kgimg|qq\.com|gtimg\.cn|tencentmusic|migu\.cn)/i.test(
+      url,
+    )
+  ) {
     streamUrl = url.replace(/^http:\/\//i, "https://")
   }
 
-  // Stream immediately so playback starts instantly (<300ms) without blocking on a 12s full file download;
-  // warm disk cache asynchronously in the background.
+  // Download audio bytes via Rust httpFetch (bypasses WebView CORS, Referer, mixed-content,
+  // and cleartext restrictions) and serve immediately as an in-memory Blob URL.
+  const downloaded =
+    (await downloadAudioBytes(url, CACHE_DOWNLOAD_MS)) ??
+    (streamUrl !== url ? await downloadAudioBytes(streamUrl, CACHE_DOWNLOAD_MS) : null)
+
+  if (downloaded) {
+    const { ext, mime: fallbackMime } = mimeForQuality(quality)
+    const mime = sniffAudioMime(downloaded.bytes, downloaded.contentType, fallbackMime)
+    if (opts.audioCache) {
+      void putCachedAudio(
+        song.source,
+        song.meta.songId,
+        quality,
+        downloaded.bytes,
+        ext,
+        opts.maxCacheMB * 1024 * 1024,
+      ).catch(() => {})
+    }
+    return URL.createObjectURL(
+      new Blob([downloaded.bytes as BlobPart], { type: mime }),
+    )
+  }
+
+  // Fallback for very large files that exceeded CACHE_DOWNLOAD_MS: stream directly & warm cache in background
   if (opts.audioCache) {
     warmDiskCache(song, quality, streamUrl, opts.maxCacheMB)
   }

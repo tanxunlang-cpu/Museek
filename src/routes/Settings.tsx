@@ -10,6 +10,7 @@ import {
   Palette,
   FolderSync,
   Info,
+  Radio,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,6 +24,7 @@ import { ThemeSettings } from "@/components/settings/ThemeSettings";
 import { DataSettings } from "@/components/settings/DataSettings";
 import { ShortcutsSettings } from "@/components/settings/ShortcutsSettings";
 import { AboutSettings } from "@/components/settings/AboutSettings";
+import { LastfmSettings } from "@/components/settings/LastfmSettings";
 import { useT } from "@/lib/i18n";
 
 import { cn } from "@/lib/utils";
@@ -34,6 +36,7 @@ const TAB_VALUES = [
   "download",
   "local",
   "cache",
+  "listening",
   "shortcuts",
   "appearance",
   "data",
@@ -51,6 +54,7 @@ const SETTINGS_TABS: {
   { value: "download", labelKey: "settings.tab.download", icon: Download },
   { value: "local", labelKey: "settings.tab.local", icon: HardDrive },
   { value: "cache", labelKey: "settings.tab.cache", icon: Database },
+  { value: "listening", labelKey: "settings.tab.listening", icon: Radio },
   { value: "shortcuts", labelKey: "settings.tab.shortcuts", icon: Keyboard },
   { value: "appearance", labelKey: "settings.tab.appearance", icon: Palette },
   { value: "data", labelKey: "settings.tab.data", icon: FolderSync },
@@ -100,7 +104,12 @@ export function Settings() {
                     className="shrink-0"
                     aria-hidden
                   />
-                  <span className="leading-none">{t(tabItem.labelKey)}</span>
+                  {/* No `leading-none`: a line-height of 1 makes the line box
+                      hug the font's full ascent+descent, so CJK glyphs — which
+                      sit high in the em box and have no descender — look pushed
+                      up relative to the icon beside them. Letting the line box
+                      keep a normal leading centres the two against each other. */}
+                  <span className="leading-tight">{t(tabItem.labelKey)}</span>
                 </TabsTrigger>
               );
             })}
@@ -129,6 +138,10 @@ export function Settings() {
 
             <TabsContent value="cache" className="mt-0 h-full">
               <CacheSettings />
+            </TabsContent>
+
+            <TabsContent value="listening" className="mt-0 h-full">
+              <LastfmSettings />
             </TabsContent>
 
             <TabsContent value="shortcuts" className="mt-0 h-full">

@@ -26,27 +26,31 @@ export function getBuiltinSourceScripts(): SourceScript[] {
       filenameLower.includes("统一音乐源") ||
       filenameLower.includes("聚合api接口") ||
       filenameLower.includes("hello world") ||
-      filenameLower.includes("𝖧౿ᥣᥣ𝗈");
+      filenameLower.includes("𝖧౿ᥣᥣ𝗈") ||
+      filenameLower.includes("星海2.3.8") ||
+      filenameLower.includes("全豆要") ||
+      filenameLower.includes("音乐下载器") ||
+      filenameLower.includes("念心") ||
+      filenameLower.includes("忆音") ||
+      filenameLower.includes("hei music") ||
+      filenameLower.includes("幻音") ||
+      filenameLower.includes("hywmusic");
 
     const isVerifiedWorking =
       !isBroken &&
       (filenameLower.includes("裤佬") ||
-        filenameLower.includes("k×h") ||
-        filenameLower.includes("全豆要") ||
-        filenameLower.includes("音乐下载器") ||
-        filenameLower.includes("玉宁熙") ||
-        filenameLower.includes("幻音") ||
-        filenameLower.includes("念心") ||
-        filenameLower.includes("忆音") ||
-        filenameLower.includes("溯音") ||
-        filenameLower.includes("hei music") ||
-        filenameLower.includes("西瓜") ||
-        filenameLower.includes("非常刀") ||
-        filenameLower.includes("gdstudio") ||
         filenameLower.includes("stellarwave") ||
-        filenameLower.includes("xinghai") ||
-        filenameLower.includes("星海") ||
-        filenameLower.includes("墨澜"));
+        filenameLower.includes("墨澜音乐源v2.3") ||
+        filenameLower.includes("西瓜") ||
+        filenameLower.includes("gdstudio") ||
+        filenameLower.includes("墨澜聚合") ||
+        filenameLower.includes("k×h") ||
+        filenameLower.includes("玉宁熙") ||
+        filenameLower.includes("xinghai-music-sourcev2.3.11") ||
+        filenameLower.includes("溯音") ||
+        filenameLower.includes("非常刀") ||
+        filenameLower.includes("收集の聚合") ||
+        filenameLower.includes("星澜"));
 
     // Clean up stable ID based on filename
     const safeId =
@@ -67,25 +71,21 @@ export function getBuiltinSourceScripts(): SourceScript[] {
     });
   }
 
-  // Rank priorities: top tested reliable multi-platform sources first
+  // Rank priorities: top end-to-end verified multi-platform 206 audio stream sources first
   const priorityKeywords = [
     "裤佬",
-    "k×h",
-    "全豆要",
-    "音乐下载器",
-    "玉宁熙",
-    "幻音",
-    "念心",
-    "忆音",
-    "溯音",
-    "hei music",
-    "西瓜",
-    "非常刀",
-    "gdstudio",
     "stellarwave",
-    "xinghai",
-    "星海",
-    "墨澜",
+    "墨澜音乐源v2.3",
+    "西瓜",
+    "gdstudio",
+    "墨澜聚合",
+    "k×h",
+    "玉宁熙",
+    "xinghai-music-sourcev2.3.11",
+    "溯音",
+    "非常刀",
+    "收集の聚合",
+    "星澜",
   ];
   const getRank = (name: string, file: string) => {
     const s = (name + " " + file).toLowerCase();

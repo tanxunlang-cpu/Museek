@@ -31,6 +31,7 @@ import { CoverImage } from "@/components/common/CoverImage";
 import { IconSwap } from "@/components/common/IconSwap";
 import { ProgressSlider } from "@/components/player/ProgressSlider";
 import { SpecularFrame } from "@/components/common/SpecularFrame";
+import { MarqueeText } from "@/components/common/MarqueeText";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useDesktopLyricsStore } from "@/stores/desktopLyricsStore";
 import { hiResCover } from "@/lib/cover";
@@ -773,18 +774,18 @@ export function LyricsPanel() {
         >
           {currentSong && (
             <div className="text-center max-w-xs hidden md:block">
-              <p
-                className="text-2xl font-semibold truncate tracking-tight"
+              <MarqueeText
+                className="text-2xl font-semibold tracking-tight"
                 title={currentSong.name}
               >
                 {currentSong.name}
-              </p>
-              <p
-                className="text-muted-foreground mt-1.5 truncate"
+              </MarqueeText>
+              <MarqueeText
+                className="text-muted-foreground mt-1.5"
                 title={currentSong.singer}
               >
                 {currentSong.singer}
-              </p>
+              </MarqueeText>
             </div>
           )}
           <div
@@ -972,7 +973,7 @@ export function LyricsPanel() {
       <div
         data-tauri-drag-region
         className={cn(
-          "absolute left-0 top-0 z-10 h-10 select-none",
+          "hidden md:block absolute left-0 top-0 z-10 h-10 select-none",
           commentsOpen ? "right-[22rem]" : "right-0",
         )}
         aria-hidden="true"

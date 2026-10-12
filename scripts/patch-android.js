@@ -335,11 +335,12 @@ class MainActivity : TauriActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyWebViewSettingsWithRetry()
     }
 
     override fun onResume() {
         super.onResume()
-        applyWebViewSettings()
+        applyWebViewSettingsWithRetry()
         webView?.resumeTimers()
     }
 
@@ -351,12 +352,15 @@ class MainActivity : TauriActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyWebViewSettings()
+        if (hasFocus) applyWebViewSettingsWithRetry()
     }
 
-    private fun applyWebViewSettings() {
-        window.decorView.post {
-            configureViews(window.decorView)
+    private fun applyWebViewSettingsWithRetry() {
+        val delays = longArrayOf(0L, 150L, 500L, 1500L, 3000L)
+        for (delay in delays) {
+            window.decorView.postDelayed({
+                configureViews(window.decorView)
+            }, delay)
         }
     }
 

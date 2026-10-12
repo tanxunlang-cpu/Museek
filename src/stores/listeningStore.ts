@@ -4,11 +4,13 @@ import {
   newEventId,
   readListenLog,
   snapshotSong,
+  songDurationMs,
   trimEvents,
   writeListenLog,
   type LiveListenSession,
   type PlayEvent,
 } from "@/lib/listenLog";
+import { resetNowPlayingDedupe, useLastfmStore } from "@/stores/lastfmStore";
 import type { MusicInfo } from "@/types/music";
 
 let live: LiveListenSession | null = null;
@@ -49,6 +51,8 @@ function pauseLive() {
   live = { ...accrueSession(live), playing: false };
   persist(true);
   publish(true);
+  // Let the same track announce itself again on resume.
+  resetNowPlayingDedupe();
 }
 
 type ListeningState = {
@@ -107,6 +111,25 @@ export const useListeningStore = create<ListeningState>((set) => ({
     live = null;
     persist(true);
     publish(true);
+    // The session is over, so the now-playing dedupe key must go with it.
+    // `pauseLive` clears it, but a session can also end WITHOUT a pause — the
+    // player clears its state at the end of a one-song queue without ever
+    // calling listenSetPlaying(false). Leaving the key set meant replaying that
+    // same song never announced it again, so Last.fm kept showing whatever was
+    // announced before while the profile's "now playing" went stale.
+    resetNowPlayingDedupe();
+    // Last.fm decides for itself whether this listen qualifies, so the raw
+    // session facts are handed over and the rules live in one place
+    // (`shouldScrobble`). Done here rather than in the player because this is the
+    // single point where a session is closed, whatever ended it — a natural
+    // finish, a skip, an error, or a track change.
+    useLastfmStore.getState().reportListenEnded({
+      song: closed.song,
+      startedAt: closed.startedAt,
+      listenedMs: closed.listenedMs,
+      completed,
+      durationMs: songDurationMs(closed.song),
+    });
   },
 
   setPlaying(playing, song) {
@@ -117,15 +140,19 @@ export const useListeningStore = create<ListeningState>((set) => ({
     if (!song) return;
 
     if (live && live.song.id === song.id) {
+      const wasPlaying = live.playing;
       live = {
         ...live,
         song: snapshotSong(song),
         playing: true,
-        lastTick: live.playing ? live.lastTick : Date.now(),
+        lastTick: wasPlaying ? live.lastTick : Date.now(),
       };
       live = accrueSession(live);
       persist(false);
       publish(false);
+      // Re-announce after a pause: `pauseLive` cleared the dedupe key, so this
+      // is not suppressed, and a listener who resumed should show as playing.
+      if (!wasPlaying) useLastfmStore.getState().reportNowPlaying(song);
       return;
     }
 
@@ -145,5 +172,8 @@ export const useListeningStore = create<ListeningState>((set) => ({
     };
     persist(true);
     publish(true);
+    // Announce the new track. Sent from the session boundary so it happens once
+    // per listen rather than on every player state change.
+    useLastfmStore.getState().reportNowPlaying(song);
   },
 }));

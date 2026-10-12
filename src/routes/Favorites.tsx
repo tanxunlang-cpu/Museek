@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Heart,
@@ -12,8 +12,10 @@ import {
   Pencil,
   ArrowDownUp,
   ListFilter,
+  Loader2,
   Search,
   Tags,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +39,7 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import type { OnlineSource, Quality } from "@/types/music";
+import type { MusicInfo, OnlineSource, Quality } from "@/types/music";
 import {
   categoryNameMap,
   filterByCategoryId,
@@ -50,9 +52,35 @@ import { CategoryAssignMenu } from "@/components/songCategories/CategoryAssignMe
 import { CategoryFilterMenu } from "@/components/songCategories/CategoryFilterMenu";
 import { CategoryNameDialog } from "@/components/songCategories/CategoryNameDialog";
 import { useCategoryDialog } from "@/components/songCategories/useCategoryDialog";
+import {
+  LastfmLovedError,
+  LastfmLovedPanel,
+  LastfmLovedSkeleton,
+  lovedTrackKey,
+} from "@/components/favorites/LastfmLovedPanel";
+import { pickLovedMatch, resolveLovedTrack } from "@/lib/lastfm/lovedPlayback";
+import {
+  cachedLovedFor,
+  useLastfmStore,
+  type LovedTrack,
+} from "@/stores/lastfmStore";
 
 const PLATFORMS: OnlineSource[] = ["wy", "kw", "kg", "tx", "mg"];
 const SORTS = ["added", "name"] as const;
+
+/** The local tabs. "lastfm" is prepended only while the integration is on. */
+const LOCAL_FAVORITE_TABS = ["songs", "playlists", "albums"] as const;
+type FavoriteTab = "lastfm" | (typeof LOCAL_FAVORITE_TABS)[number];
+
+/**
+ * How the loved list can be ordered.
+ *
+ * `recent` is the order Last.fm returns and the only one that carries
+ * information the list itself does not already show — the others are for finding
+ * a song you can already name.
+ */
+const LOVED_SORTS = ["recent", "name", "artist"] as const;
+type LovedSort = (typeof LOVED_SORTS)[number];
 
 export function Favorites() {
   const favorites = usePlaylistStore((s) => s.favorites);
@@ -84,8 +112,51 @@ export function Favorites() {
   const tab = useUiStore((s) => s.favoritesTab);
   const setTab = useUiStore((s) => s.setFavoritesTab);
   const notify = useUiStore((s) => s.notify);
+  const lastfmEnabled = useLastfmStore((s) => s.enabled);
+  const lastfmUsername = useLastfmStore((s) => s.username);
+  const lastfmApiKey = useLastfmStore((s) => s.apiKey);
+  const lovedCache = useLastfmStore((s) => s.lovedCache);
+  const lovedLoading = useLastfmStore((s) => s.lovedLoading);
+  const lovedError = useLastfmStore((s) => s.lovedError);
+  const loadLovedTracks = useLastfmStore((s) => s.loadLovedTracks);
   const t = useT();
   const navigate = useNavigate();
+
+  // The Last.fm tab exists only while the integration is on, but the stored tab
+  // survives switching it off — so a tab that no longer exists must not render
+  // an empty page. Same rule as the 足迹 page.
+  const tabs: FavoriteTab[] = lastfmEnabled
+    ? ["lastfm", ...LOCAL_FAVORITE_TABS]
+    : [...LOCAL_FAVORITE_TABS];
+  const activeTab: FavoriteTab = tabs.includes(tab) ? tab : "songs";
+  const isLastfm = activeTab === "lastfm";
+  const canLoadLoved = Boolean(lastfmApiKey.trim() && lastfmUsername.trim());
+  const loved = cachedLovedFor(lovedCache, lastfmUsername);
+  const [resolvingLoved, setResolvingLoved] = useState<string | null>(null);
+  const [lovedQuery, setLovedQuery] = useState("");
+  const [lovedSort, setLovedSort] = useState<LovedSort>("recent");
+  const [preparingAll, setPreparingAll] = useState(false);
+
+  /** The loved list after the tab's own search and sort. */
+  const lovedDisplayed = useMemo(() => {
+    const needle = lovedQuery.trim().toLowerCase();
+    const rows = (loved?.tracks ?? []).filter(
+      (track) =>
+        !needle ||
+        track.name.toLowerCase().includes(needle) ||
+        track.artist.toLowerCase().includes(needle),
+    );
+    if (lovedSort === "name") {
+      return [...rows].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    if (lovedSort === "artist") {
+      return [...rows].sort(
+        (a, b) => a.artist.localeCompare(b.artist) || a.name.localeCompare(b.name),
+      );
+    }
+    // Most recently loved first, which is the order Last.fm returns.
+    return [...rows].sort((a, b) => (b.lovedAt ?? 0) - (a.lovedAt ?? 0));
+  }, [loved, lovedQuery, lovedSort]);
 
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -104,8 +175,8 @@ export function Favorites() {
     },
   });
 
-  const isSongs = tab === "songs";
-  const isAlbums = tab === "albums";
+  const isSongs = activeTab === "songs";
+  const isAlbums = activeTab === "albums";
 
   const categoryNameById = useMemo(
     () => categoryNameMap(favoriteCategories),
@@ -175,14 +246,18 @@ export function Favorites() {
     query,
   ]);
 
-  const tabTotal = isSongs
-    ? favorites.length
-    : isAlbums
-      ? favoriteAlbumsOnly.length
-      : favoritePlaylistsOnly.length;
-  const currentKeys = isSongs
-    ? displayedSongs.map((s) => s.id)
-    : displayedLists.map((p) => playlistFavKey(p));
+  const tabTotal = isLastfm
+    ? (loved?.tracks.length ?? 0)
+    : isSongs
+      ? favorites.length
+      : isAlbums
+        ? favoriteAlbumsOnly.length
+        : favoritePlaylistsOnly.length;
+  const currentKeys = isLastfm
+    ? []
+    : isSongs
+      ? displayedSongs.map((s) => s.id)
+      : displayedLists.map((p) => playlistFavKey(p));
   const allSelected =
     currentKeys.length > 0 && currentKeys.every((k) => selected.has(k));
 
@@ -208,10 +283,103 @@ export function Favorites() {
     setEditing(false);
     setSelected(new Set());
   };
-  const switchTab = (id: "songs" | "playlists" | "albums") => {
+  const switchTab = (id: FavoriteTab) => {
     setTab(id);
     setCategoryFilter("all");
     exitEdit();
+  };
+
+  /**
+   * Play a loved track.
+   *
+   * Last.fm stores an artist and a title, not a playable recording, so the song
+   * has to be found on a platform first. That lookup is fallible, and a wrong
+   * guess plays the wrong song while the player bar shows the right one — so a
+   * failure is reported rather than approximated.
+   */
+  const playLoved = async (track: LovedTrack) => {
+    const key = lovedTrackKey(track);
+    setResolvingLoved(key);
+    try {
+      // A song the user already favourited is the exact recording they chose, so
+      // it is played directly instead of being searched for. Reported: a loved
+      // track that WAS in the user's favourites still came back "not found",
+      // because the search was the only path and it could not match.
+      const local = pickLovedMatch(track, favorites);
+      const song = local ?? (await resolveLovedTrack(track));
+      if (!song) {
+        notify({
+          message: t("favorites.lastfm.notFound", { name: track.name }),
+          variant: "error",
+        });
+        return;
+      }
+      await play(song);
+    } finally {
+      setResolvingLoved(null);
+    }
+  };
+
+  // Fetch when the tab is first opened. The store decides whether that means a
+  // request, so returning to the tab in the same run does not re-fetch.
+  useEffect(() => {
+    if (!isLastfm || !canLoadLoved) return;
+    void loadLovedTracks();
+  }, [isLastfm, canLoadLoved, loadLovedTracks]);
+
+  /**
+   * Queue the whole loved list.
+   *
+   * Every row has to become a playable recording first, which is why this is not
+   * instant: a loved track that is already one of the user's favourites resolves
+   * from the local list with no request at all, and only the rest are searched
+   * for. Those are searched a few at a time rather than strictly one by one, and
+   * anything that cannot be found is reported instead of being dropped in
+   * silence — a "play all" that quietly plays half the list is worse than one
+   * that says so.
+   */
+  const playAllLoved = async () => {
+    if (preparingAll || lovedDisplayed.length === 0) return;
+    setPreparingAll(true);
+    try {
+      const resolved: (MusicInfo | null)[] = lovedDisplayed.map(() => null);
+      const toSearch: number[] = [];
+      lovedDisplayed.forEach((track, index) => {
+        const local = pickLovedMatch(track, favorites);
+        if (local) resolved[index] = local;
+        else toSearch.push(index);
+      });
+
+      const CONCURRENCY = 6;
+      let cursor = 0;
+      await Promise.all(
+        Array.from(
+          { length: Math.min(CONCURRENCY, toSearch.length) },
+          async () => {
+            while (cursor < toSearch.length) {
+              const index = toSearch[cursor++];
+              resolved[index] = await resolveLovedTrack(lovedDisplayed[index]);
+            }
+          },
+        ),
+      );
+
+      const songs = resolved.filter((song): song is MusicInfo => Boolean(song));
+      if (songs.length === 0) {
+        notify({
+          message: t("favorites.lastfm.notFoundAll"),
+          variant: "error",
+        });
+        return;
+      }
+      const missing = resolved.length - songs.length;
+      if (missing > 0) {
+        notify({ message: t("favorites.lastfm.someMissing", { count: missing }) });
+      }
+      await playAll(songs);
+    } finally {
+      setPreparingAll(false);
+    }
   };
 
   const batchDownload = () => {
@@ -266,15 +434,46 @@ export function Favorites() {
               {t("favorites.title")}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">
-              {t("favorites.summary", {
-                songs: favorites.length,
-                playlists: favoritePlaylistsOnly.length,
-                albums: favoriteAlbumsOnly.length,
-              })}
+              {isLastfm
+                ? t(
+                    (loved?.total ?? 0) > (loved?.tracks.length ?? 0)
+                      ? "favorites.lastfm.summaryPartial"
+                      : "favorites.lastfm.summary",
+                    {
+                      count: loved?.tracks.length ?? 0,
+                      total: loved?.total ?? 0,
+                    },
+                  )
+                : t("favorites.summary", {
+                    songs: favorites.length,
+                    playlists: favoritePlaylistsOnly.length,
+                    albums: favoriteAlbumsOnly.length,
+                  })}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:ml-auto">
+          {isLastfm && lovedDisplayed.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 text-xs sm:text-sm"
+              disabled={preparingAll}
+              onClick={() => void playAllLoved()}
+            >
+              {preparingAll ? (
+                <Loader2 size={14} className="mr-1.5 animate-spin" />
+              ) : (
+                <Play
+                  size={14}
+                  className="mr-1.5"
+                  fill="currentColor"
+                  strokeWidth={0}
+                />
+              )}
+              {t("favorites.playAll")}
+            </Button>
+          )}
           {isSongs && favorites.length > 0 && !editing && (
             <Button
               variant="secondary"
@@ -292,29 +491,95 @@ export function Favorites() {
             </Button>
           )}
           <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-1 shrink-0">
-            {(["songs", "playlists", "albums"] as const).map((id) => (
+            {tabs.map((id) => (
               <button
                 key={id}
                 onClick={() => switchTab(id)}
                 className={cn(
                   "px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium transition-colors shrink-0 whitespace-nowrap",
-                  tab === id
+                  activeTab === id
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {id === "songs"
-                  ? t("favorites.tabSongs")
-                  : id === "albums"
-                    ? t("favorites.tabAlbums")
-                    : t("favorites.tabPlaylists")}
+                {id === "lastfm"
+                  ? t("favorites.tabLastfm")
+                  : id === "songs"
+                    ? t("favorites.tabSongs")
+                    : id === "albums"
+                      ? t("favorites.tabAlbums")
+                      : t("favorites.tabPlaylists")}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {tabTotal > 0 && (
+      {/* The loved list is the account's, not this device's, so it gets its own
+          bar: sort, search and refresh, in the same 12-row shape as the local
+          one below so switching tabs does not move the list. */}
+      {isLastfm && (loved || lovedLoading) && (
+        <div className="flex h-12 min-h-12 max-h-12 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-4">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5"
+              >
+                <ArrowDownUp size={14} />
+                <span className="hidden sm:inline">
+                  {t(`favorites.lastfm.sort.${lovedSort}`)}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {LOVED_SORTS.map((id) => (
+                <DropdownMenuItem key={id} onSelect={() => setLovedSort(id)}>
+                  {t(`favorites.lastfm.sort.${id}`)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              className="h-8 py-0 pl-9"
+              placeholder={t("favorites.lastfm.searchPlaceholder")}
+              value={lovedQuery}
+              onChange={(e) => setLovedQuery(e.target.value)}
+            />
+          </div>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            // Disabled while a fetch is running so a second one cannot overlap,
+            // and when there is nothing to fetch with. Same affordance as the
+            // 足迹 tab's refresh.
+            disabled={lovedLoading || !canLoadLoved}
+            onClick={() => void loadLovedTracks({ force: true })}
+            title={
+              loved ? t("favorites.lastfm.reload") : t("favorites.lastfm.load")
+            }
+          >
+            <RefreshCw
+              size={15}
+              className={cn(lovedLoading && "animate-spin")}
+            />
+          </Button>
+        </div>
+      )}
+
+      {/* The sort / category / search bar filters THIS device's favourites, so it
+          does not apply to the Last.fm tab — that list is the account's and is
+          ordered by Last.fm. */}
+      {!isLastfm && tabTotal > 0 && (
         <div className="flex h-12 min-h-12 max-h-12 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-4">
           {!editing ? (
             <>
@@ -506,7 +771,41 @@ export function Favorites() {
         </div>
       )}
 
-      {tabTotal === 0 ? (
+      {isLastfm ? (
+        <ScrollArea className="flex-1">
+          {loved && loved.tracks.length > 0 ? (
+            lovedDisplayed.length > 0 ? (
+              <LastfmLovedPanel
+                tracks={lovedDisplayed}
+                resolvingKey={resolvingLoved}
+                onPlay={(track) => void playLoved(track)}
+              />
+            ) : (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                {t("favorites.noMatch")}
+              </p>
+            )
+          ) : lovedLoading ? (
+            <LastfmLovedSkeleton />
+          ) : loved ? (
+            // Fetched, and the account simply has nothing loved yet.
+            <LastfmLovedPanel
+              tracks={[]}
+              resolvingKey={null}
+              onPlay={() => {}}
+            />
+          ) : (
+            <LastfmLovedError
+              message={
+                lovedError ??
+                (canLoadLoved
+                  ? t("favorites.lastfm.empty")
+                  : t("lastfm.err.notConnected"))
+              }
+            />
+          )}
+        </ScrollArea>
+      ) : tabTotal === 0 ? (
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-5xl p-4">
             <div className="flex min-h-[18rem] flex-col items-center justify-center px-4 text-center">

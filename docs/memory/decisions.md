@@ -38,6 +38,234 @@ Decision:
 Reason:
 The complaint is a combo clash with another application. Disabling releases the combo but KEEPS the binding, so re-enabling needs no re-recording and the row can still show what was released. The in-app handler must honour the switch too: the global map is matched in-app as well (that is what keeps the shortcut working when OS registration is unavailable), so consulting only `activeGlobalShortcuts` for the OS left the combo live with the window focused — users toggled it off and it still fired. In-app use is not lost, because the local column is a separate binding. Clearing on record matters because a stale flag would make a freshly recorded combo look broken. It is device-local because a clash is caused by software installed on *this* machine. Duplicate combos resolve to the earliest action in `SHORTCUT_ACTIONS`, which is the pre-existing registrar behaviour and is now pinned by a test.
 
+## 2026-10-04 - The shadow refresh must re-assert the Overlay mask on the main GCD queue
+
+Decision:
+`refresh_macos_window_shadow` in `src-tauri/src/lib.rs` runs its work through `dispatch2::DispatchQueue::main().exec_async`, twice (immediately and ~140ms later). Inside, it re-asserts `set_title_bar_style(Overlay)` **only when** `macos_traffic_lights::has_overlay_chrome` reports the `FullSizeContentView` bit is missing, then toggles `set_shadow(false)`/`(true)` and reapplies the traffic lights.
+
+Reason:
+`set_decorations(true)` rebuilds the style mask from scratch as `Titled|Closable|Miniaturizable|Resizable`, dropping `FullSizeContentView` — which is what `titleBarStyle: "overlay"` consists of. Tao applies that mask with `set_style_mask_async` while `set_fullsize_content_view` uses `set_style_mask_sync`, so the queued mask can land *after* the exit path's `setTitleBarStyle("overlay")` and silently undo it; AppKit then stops painting the window shadow. Measured on the real exit path, the final mask was **nondeterministic** — 32783 (overlay kept) on some rounds and 15 (overlay lost) on others, which is exactly the flaky "sometimes no shadow" report. Queueing on the same GCD queue makes the refresh FIFO after tao's block, and the 140ms repeat covers the case where the mask lands later still. Verified by replaying the real call order 21 times: 21/21 kept mask 32783, versus 4/6 failures before. The check-then-set matters because `setStyleMask:` also re-makes the first responder, so an unconditional rewrite would steal focus. Running on the main queue is also required for correctness: `macos_traffic_lights::apply` dereferences the NSWindow directly, and the cold-start path calls in from a worker thread.
+
+## 2026-10-05 - Cross-platform lyrics need the platform's own artist spelling
+
+Decision:
+`platformArtistName` moved out of `lastfm/lovedPlayback.ts` into `lib/platformArtist.ts` so both features share one definition, and `pickBestMatchAcrossArtists` in `lyrics/matchSong.ts` offers each alternate spelling to the SAME scorer. The lyrics resolver (`lib/lyrics/sources.ts`) resolves the aliases once per platform per song and memoises them per artist for the session.
+
+Reason:
+Reported: every Aimyon song showed "no lyrics" on NetEase/KuGou/KuWo, so a QQ Music Japanese lyric could not be swapped for one with a Chinese translation. This is the SAME defect already fixed for Last.fm loved tracks, and the lyrics path had simply never been given the treatment — the two features were built independently and the second one re-derived the first one's matcher. Measured against the live APIs: the artist is 爱缪 on QQ and あいみょん on NetEase/KuGou, `fold()` cannot relate spellings sharing no characters, and every hit scored exactly 0.000, so `pickBestMatch` returned null and the platform was reported as having no lyrics. It was not missing data — ハルノヒ and あのね were both present and correct. After the fix every platform resolves: BEFORE null, AFTER ハルノヒ — あいみょん (wy, kg) and あのね — あいみょん (wy, kg).
+
+Strictness is untouched: the alternate is only a NAME offered to the same `matchScore`, so the title gate, the duration gate and `ARTIST_MIN` all still apply, and an unrelated alias matches nothing. The alias itself is refused unless the platform answered about one artist — see the loved-tracks decision for why one hit is not evidence. Verified by `scripts/check-lyrics-cross-artist.mjs`, which drives the real matcher; disabling the alias loop fails the reported case.
+
+## 2026-10-05 - The drag cursor belongs on the whole lyrics window, not just the text
+
+Decision:
+`data-lyrics-dragging` is mirrored onto the `.desktop-lyrics-window` root as well as the heading group, and the `grabbing` rule is written for both. The hover (`grab`) rule stays on the shell and toolbar only.
+
+Reason:
+Follow-up report after the previous cursor fix: the open hand appeared on hover and closed on press, but the moment a drag started the cursor became the default arrow. The native lyrics window spans the entire monitor — `restoreDesktopLyricsGeometry` sets it to `monitor.size.width` — while `.desktop-lyrics-heading-shell` is `width: max-content`, i.e. only as wide as the lyric text. The cursor rules covered only the shell, the toolbar and the group, so as the window followed the pointer the cursor was frequently over the window's own transparent gutters, where nothing declared a cursor and the platform default applied. Measured before the fix: root/body/stage/group all resolved to `auto` while dragging. The root rule covers every child that does not override it, and the toolbar buttons still override with `pointer`.
+
+The hover rule is deliberately NOT extended to the root: the text is the drag handle, so a hand over empty space would promise a drag that does nothing. Verified by `scripts/check-desktop-lyrics-cursor.mjs`, which now asserts the computed cursor on every container during a drag AND that hovering off the text still resolves to `auto`. Non-vacuous: removing the root dragging rule fails 3 cases.
+
+## 2026-10-05 - The lyrics hover attribute is written only from a live poll
+
+Decision:
+The desktop lyrics hit-test poll no longer lists `isLyricsHovered` as an effect dependency — it reads the value through `isLyricsHoveredRef` — and it checks `disposed` after its awaits before writing hover state. The dragging rule uses `cursor: grabbing`, the toolbar carries the same grab/grabbing rules as the shell, and the toolbar's buttons keep `pointer`.
+
+Reason:
+Reported as "with the lyrics unlocked, hovering sometimes shows no grab cursor". Two independent defects. The effect set `isLyricsHovered` while depending on it, so every hover flip tore the effect down and rebuilt it; an in-flight poll from the discarded instance could resolve afterwards and publish `inside: false` while the pointer was on the lyric, clearing the very attribute the cursor rule keys on. Nothing checked `disposed` after the awaits either, so a poll that resolved after teardown wrote its stale sample regardless — which is why the bug was intermittent rather than constant. Separately, the dragging rule declared `cursor: grab`, the same value as the hover rule, so `grabbing` appeared nowhere in the stylesheet and the closed hand was never shown at any point in a drag.
+
+The observable consequence is worth recording because it is what makes this testable: `data-lyrics-active` is rendered from `isLyricsHovered` alone and does NOT consult the interaction mode, so a stale poll can put the grab cursor on a LOCKED window. Verified by `scripts/check-desktop-lyrics-hover-race.mjs`, which renders the real component in headless Chrome with a bridge that holds cursor samples until the test releases them, and `scripts/check-desktop-lyrics-cursor.mjs`, which reads the computed cursor against the real built stylesheet. Both are non-vacuous: restoring `cursor: grab` on the dragging rule fails 2 cases, and removing the post-await `disposed` guard fails the stale-write case. That second assertion observes attribute TRANSITIONS via a MutationObserver rather than the final value, because the locked effect keeps polling every 50ms and corrects the attribute before it settles — asserting the end state would have passed on the broken build.
+
+## 2026-09-28 - The mini-player exit must TOGGLE the macOS shadow, not re-set it (superseded 2026-10-04)
+
+Decision:
+Leaving the mini player calls a new `refresh_main_window_shadow` command, which runs `refresh_macos_window_shadow` (shadow false, then true) — the same toggle `show_main` already performs after a tray reopen. It runs last, after `setDecorations(true)`, the traffic-light reapply and `revealAfterMorph()`. `showMainWindow` now calls the same helper instead of toggling inline, so there is one definition of the refresh.
+
+Reason:
+Reported: switching to the mini player and back left the main window with no shadow on macOS. The enter path sets the shadow true and the exit path set it true again, so the value never changed — and re-setting the same value is what the exit path was relying on. The mini player calls `setDecorations(false)` on the way in and `setDecorations(true)` on the way out, and the shadow layer is not repainted across that style-mask change; the known workaround was to reopen from the tray, which happened to fix it because that path goes through the toggle. Ordering is load-bearing and is the part that would silently regress: tao applies a style-mask change through `DispatchQueue::main().exec_async`, so it is still queued when the Tauri call returns, and a refresh issued before it lands rebuilds the layer against the borderless mask on its way out. Verified by `scripts/check-miniplayer-shadow.mjs`, which drives the real transition with a stub window and records the native call order; reverting the refresh fails 3 cases and moving it before `setDecorations` fails the ordering case.
+
+Superseded: the toggle is necessary but not sufficient — the mask race above also has to be closed. See "The shadow refresh must re-assert the Overlay mask on the main GCD queue".
+
+## 2026-09-28 - A cover inside a framed box must not draw its own outline
+
+Decision:
+`CoverImage`'s `showOutline` is passed as `false` everywhere the cover sits inside the standard cover frame — `rounded-* overflow-hidden` plus `shadow-[var(--shadow-border)]` — which is TrackRow, LocalMusic, PlaylistCard and the Last.fm loved rows.
+
+Reason:
+Reported as "the cover has a black edge on all four sides". Both rings were being drawn: the frame's `shadow-border` (whose first layer is `0 0 0 1px`) follows the frame's border radius, while `showOutline` puts `outline-1 -outline-offset-1 outline-black/10` on the rectangular `<img>` inside that rounded, `overflow-hidden` frame. The img's outline is clipped at the corners but survives along the straight edges, so the two stack to roughly 15% black down all four sides and vanish at the corners — which is what reads as a wrong black border rather than a 1px edge. The fix removes the duplicate, not the border: the frame keeps its ring, and the check asserts both halves so a future change cannot pass by deleting the wrong one. `showOutline` remains the default for a bare cover with no frame around it (Downloads), where it is the only edge.
+
+## 2026-09-28 - Loved tracks: mirror favourites out, show the account's list in, resolve strictly
+
+Decision:
+Favouriting or un-favouriting a song also sends `track.love` / `track.unlove` (gated by a new `loveEnabled` toggle, default on, and by `enabled` + a session key). The 收藏 page gains a Last.fm tab, shown only while the integration is on and placed FIRST, that lists `user.getLovedTracks` and can play a row. A loved track is resolved to a playable song by searching platforms, NetEase first (it has a built-in URL resolver, so it can play with no script), then whatever the enabled scripts declare.
+
+Reason:
+Two directions, because they are different features: the write keeps Last.fm in step with what the user does in Museek, and the read is the only view of "songs I like" that is not tied to this machine — it includes songs loved on the website or in the Last.fm app. The write is fire-and-forget and never retried on a backoff: `track.love`/`track.unlove` are not toggles (loving an already-loved track and unloving a never-loved one are both accepted), so the action is idempotent and the user's next favourite repeats it. It uses `scrobbleIdentity`, so a matched local file is loved under its real artist rather than its filename, and a file with no real metadata is skipped rather than loving "未知歌曲".
+
+The read is cached in `lastfm.json` and validated against the current username, exactly like the stats cache, and it is fetched with the documented page size of 50 and paged up to 4 times rather than asking for 200 at once — a `limit` above the documented maximum is not something the API promises to accept, and a rejected request would look like a broken feature.
+
+Playback is the risky half and is deliberately strict: Last.fm carries an artist and a title and no platform id, so the song must be FOUND, and a title-only match is exactly the failure that makes a user say "I played X and heard Y" (あのね is a title shared by several artists). Both artist and title must match, and a track that cannot be matched confidently is reported as not found instead of played as the closest thing.
+
+Strict artist matching then turned out to be impossible as written, and this is the part worth remembering. Last.fm stores "Aimyon"; QQ Music calls the same artist 爱缪 and NetEase calls her あいみょん. Measured against the live APIs, `matchScore` rejects EVERY hit for such a pair because `fold()` cannot relate spellings that share no characters — so the first version of this feature played nothing at all for any artist whose name is not already spelled the way the platform spells it, which is most non-Latin artists. The platforms know the mapping themselves (searching "Aimyon" on QQ returns songs by 爱缪), so the second attempt asks the platform for its own spelling — the singer shared by most answers to a bare artist query — and retries the strict comparison with that name. Measured: "Aimyon" resolves to あいみょん on NetEase/KuGou/KuWo and 爱缪 on QQ, "Kenshi Yonezu" to 米津玄師 on all four. The spelling is only ever used as a NAME to search with and still has to survive the strict comparison, and it is refused unless at least two of the top hits agree on it — one result is not evidence that the platform knows the artist, and acting on it would let the resolved name be an arbitrary artist whose same-titled song would then pass. KuWo answering "Ado" with 阿杜 (a different Chinese singer) is the residual case this does not catch, and it fails closed in practice because that artist has no song by the wanted title.
+
+A second, unrelated matching failure came back from the same feature: the loved track 冷冰冰 names only 元, NetEase credits 元、鱼骨妹, and `textScore("元", "元 鱼骨妹")` is 0 because a one-character name inside a longer string is thrown out by the ratio guard — the guard that stops "BGM" matching "Epic Battle BGM". Last.fm normally stores the first artist while platforms credit everyone, so this is the common shape, not an edge case. `lovedScore` therefore offers each credited artist to the SAME scorer on its own (`splitArtists` splits 、 , / & ; feat. ft. with), so the title strictness, the duration gate and every other rule are untouched — only the set of names the artist may match grows, and each still has to clear `ARTIST_MIN` alone. A genuine name containing "&" only yields parts that then fail on their own, so the greedy split cannot cause a false match.
+
+Playing a loved track also checks the user's own favourites first. A song already favourited is the exact recording the user chose, so searching for it can only be worse — and it was: the reported loved track was IN the user's favourites and still came back "not found", because the search was the only path. `pickLovedMatch(track, favorites)` is the same matcher, so the local hit is subject to the same strictness as a search hit.
+
+Verified by `scripts/check-lastfm-loved.mjs` (a title-only fallback fails the strictness case, disabling the artist lookup fails the romaji case, disabling credit splitting fails 5 cases, removing the favourite→love wiring fails the write case) and `scripts/check-favorites-lastfm-tab.mjs` (removing the tab fails 9 cases; it also drives a real pointer move to prove the cover play button is hidden until hover, and seeds a favourite to prove the local recording is preferred over a search result).
+
+## 2026-09-28 - Source dispatch never falls back to scripts that do not serve the platform
+
+Decision:
+`SourceRunner.getOrderedIds()` returns only scripts whose `sources` map declares the song's platform, plus scripts that declare no `sources` at all. There is no "fall back to every enabled script" when nothing matches. `getMusicUrl` then throws `sources.err.noPlatform`, which names the platform, rather than `sources.err.noEnabled`.
+
+Reason:
+Reported again after the first platform fix: searching あのね (话说…) on QQ Music and playing it still played a different song. The search is not at fault — asking the real API returns that exact row first, and `toLxMusicInfo` passes its `songmid` and `strMediaMid` through correctly — so the substitution happens inside a source script. The first fix filtered by platform but kept a fallback returning the unfiltered list whenever the filter matched nothing, which re-admitted exactly the scripts the filter exists to exclude. A script handed an id it cannot resolve looks the track up by name on its own service, and there are many songs called あのね by different artists, so it answers with another recording. The fallback was justified as "better to try than to leave the song unplayable", but silently playing the wrong song is worse than an honest failure — and search is built in for every platform, so browsing one you have no script for is ordinary. Verified by `scripts/check-source-platform-dispatch.mjs`; removing the filter fails 9 cases. The `sources.err.noPlatform` message also passes through `formatRemotePlayError` unwrapped, or the toast would read "播放失败：没有支持QQ音乐的音源…".
+
+## 2026-09-28 - A release is a version bump plus a whatsNew entry, then a tag
+
+Decision:
+Shipping a version means: bump `package.json`, add a bilingual entry to `src/lib/whatsNew/entries.ts` keyed by the exact version, run the suite, commit, push `main`, then create a lightweight tag `vX.Y.Z` and push it. `src-tauri/tauri.conf.json` reads `"version": "../package.json"`, so package.json is the single source of truth and nothing else needs editing.
+
+Reason:
+The tag is what triggers `.github/workflows/release.yml`, which builds Windows NSIS and macOS Apple Silicon and uploads the assets. The whatsNew entry is not optional: `check-whatsnew-entry.mjs` defaults to the version in package.json, so it is part of the suite and the dialog looks up notes by that exact key — a release without one ships a version whose "What's New" is empty. Previous releases used lightweight tags, so that convention is followed.
+
+## 2026-09-28 - The release workflow creates a DRAFT, and a read-only token cannot see it
+
+Decision:
+Do not report a release as missing because `gh release view vX.Y.Z` returns "release not found". Check the workflow log for "Creating one" / "Found draft release" and the `Uploading …` lines instead, and confirm with a HEAD request against the asset URL.
+
+Reason:
+`releaseDraft: true` means tauri-action creates the release unpublished, and the GitHub API hides draft releases from a token without push access. This token has only `pull` on this repo, so `gh release list` and the releases API showed 30 published releases and no sign of the new one, while the log plainly recorded the creation and six uploaded assets. The tell is a HEAD on `releases/download/vX.Y.Z/latest.json`: a published release answers 302, a draft or absent one answers 404. Publishing the draft requires a write-capable token or the GitHub UI, and is a deliberate manual step — previous releases were published roughly 14 minutes after creation, by someone with write access.
+
+## 2026-09-28 - The Last.fm tab refreshes once per launch, and shows a skeleton while it does
+
+Decision:
+`loadStatsForTab(period)` is what the 足迹 page calls when the Last.fm tab is opened. It refreshes a cached period the FIRST time the tab is opened in a run, fills in a period that has never been fetched, and does nothing on subsequent visits. The "already refreshed" flag is module-level and deliberately not persisted. While a fetch is in flight with nothing cached, the body renders `LastfmStatsSkeleton`; when something IS cached, the cached list stays on screen and the refresh button carries the spinner.
+
+Reason:
+Caching alone left the tab showing yesterday's numbers forever unless the user pressed refresh, and the account can gain plays from other clients between runs — which is exactly what someone opening this tab wants to see. Refreshing once per launch gets that without hammering the API on every tab switch, and the flag must not be persisted or it would survive the restart it is meant to detect. The skeleton mirrors the real row geometry (`px-3 py-2`, h-10 avatar) so the list does not jump when data lands, and it only appears when there is nothing to show: blanking a populated list to display a placeholder would be worse than showing slightly stale rows.
+
+## 2026-09-28 - Restoring a playback session never scrobbles
+
+Decision:
+No code change was needed; the behaviour was verified and is now locked down by `scripts/check-lastfm-restore.mjs`. Restoring a session after a restart leaves the player paused, sends no `track.scrobble` and no `track.updateNowPlaying`, and stays silent however long it idles.
+
+Reason:
+A persisted live listen session records `playing: true` from the run that wrote it, and `parseLive` is what turns that into `playing: false` on read — the single guard that stops a restored session counting as an in-progress listen. The player then settles on `paused` and drives `listenSetPlaying(false)`, which takes the `pauseLive` branch and returns before any announce. Only `finish()` scrobbles, and on startup nothing calls it. The check seeds a session deliberately ABOVE the scrobble threshold (150s of a 240s track, against a 120s threshold) and asserts that `shouldScrobble` would accept it, so the observed zeros mean "nothing tried" rather than "it tried and was judged too short". Injecting `listenFinish(false)` into the restore path fails three cases, which is the exact shape of the feared bug.
+
+## 2026-09-28 - Last.fm stat rows carry a tooltip, not a trailing link icon
+
+Decision:
+A Last.fm stat row renders no trailing "open" icon. Instead the whole row is the link and is wrapped in a Radix tooltip reading 在 Last.fm 中打开 / Open on Last.fm. Rows with no URL are returned bare, without the tooltip wrapper.
+
+Reason:
+The entire row already opened on click, so a second affordance beside it was redundant — and it was `opacity-0` until hover anyway, so it only appeared at the same moment as the hover background. Removing it left nothing to tell the user where the click goes, since no text on the row mentions Last.fm, so the tooltip carries that. A disabled button fires no pointer events, so wrapping a URL-less row in a trigger would create a tooltip that can never open.
+
+## 2026-09-28 - The Last.fm view tabs use text-xs, like the search page's scope picker
+
+Decision:
+The 常听歌手/常听歌曲/最近记录 sub-tabs use `text-xs`, matching the 歌曲/歌手/专辑 scope picker on the search page. The page-level tabs stay `text-sm`.
+
+Reason:
+They are a secondary choice *inside* one tab, so at `text-sm` they competed visually with the page-level tabs directly above them rather than reading as subordinate. The search page already establishes this two-level relationship, so copying it keeps the app consistent instead of inventing a third size.
+
+## 2026-09-28 - Last.fm stats are cached per period on disk and auto-loaded
+
+Decision:
+`statsCache: Partial<Record<LastfmPeriod, LastfmStats>>` replaces the single in-memory `stats` field and is part of the persisted payload. The 足迹 page reads it through `cachedStatsFor(cache, period, username)`, which rejects an entry whose `username` does not match the current one and any entry with no `fetchedAt`. Opening the Last.fm tab fetches a period only when it is not already cached; a refresh button in the filter bar forces one. `disconnect()` deliberately does NOT clear the cache.
+
+Reason:
+The stats were runtime-only, so every launch showed an empty tab and the only way to see data was to press a button — the reported behaviour. Caching per period rather than keeping one "current" object means switching back to a period is instant and a refresh of one period does not discard another. The username check is what makes it safe to keep the cache across a disconnect: `disconnect()` also runs automatically when a background request hits an auth error, and wiping the user's data because a scrobble failed would be a nasty surprise, so the entries are validated on read instead of being deleted on write. `nowPlaying` is forced false when rehydrating, because it is true only at the moment of the fetch and claiming it after a restart would be a lie.
+
+## 2026-09-28 - The Last.fm lists are sub-tabs in the shared filter bar
+
+Decision:
+常听歌手 / 常听歌曲 / 最近记录 are three sub-tabs rendered in the 足迹 page's filter bar, in the same pill style as the page's own 歌曲/歌手/最近 tabs, with the refresh button at the end of the row. `LastfmStatsPanel` is presentational: it takes `stats` and `view` and renders one list. The page owns the period, the view and the cache.
+
+Reason:
+Stacking three sections made the Last.fm tab the only page in the app that scrolled through every category at once, while its sibling tabs each show one list — the two halves of the same page disagreed about how to present a list. Moving the choice into the filter bar keeps the whole page on one control row.
+
+## 2026-09-28 - What gets sent to Last.fm is decided by identity quality, not by "was it matched"
+
+Decision:
+`scrobbleIdentity(song)` resolves the artist and title **catalog-first** — `meta.catalogName` / `meta.catalogSinger` win when present, otherwise the display name is used if it is not a placeholder — and returns null when either half is missing. Both `reportNowPlaying` and `reportListenEnded` gate on it, and `scrobbleFields` sends what it resolved. The 足迹 log is left completely untouched: it records every play, matched or not.
+
+Reason:
+The proposal was to scrobble local files only when they had been matched online. Measurement showed that is the wrong axis. A local file's DISPLAY name is deliberately not its real song: filename mode keeps the basename, so a matched file was being scrobbled as `01 - 冷冰冰` instead of `冷冰冰`, and a matched file whose tags never parsed was being dropped entirely even though its catalog identity was sitting in meta. Conversely, a well-tagged unmatched file has a perfectly good artist and title — refusing it would silently discard legitimate plays. So the question is not "was it matched" but "do we have a real artist and title", and the catalog identity is simply the best available answer to that. The 足迹 needs no change because it keys songs on `song.id` (three untagged files stay three rows); only its artist ranking collapses them, which is honest — they genuinely share the credit "未知歌手".
+
+## 2026-09-28 - Placeholder-tagged local files are never sent to Last.fm
+
+Decision:
+`isScrobblableSong(song)` in `src/lib/lastfm/scrobble.ts` rejects a song whose title or artist is one of the local-import placeholders, and both `reportNowPlaying` and `reportListenEnded` return early on it. It reuses `isPlaceholderArtist` / `isPlaceholderTitle` from `lib/localMusic/catalogQuery`, the same test that gates the online catalog lookup.
+
+Reason:
+An untagged local file falls back to "未知歌曲" / "未知歌手" (or the English pair). Those are ordinary strings as far as Last.fm is concerned, so the app was announcing and scrobbling them — and because every untagged file produces the SAME artist and title, they all collapse into one junk entry on the profile, which is worse than not scrobbling at all. Reusing the catalog test keeps one definition of "this file has no real metadata": a file that cannot be matched online is also one that cannot be meaningfully scrobbled. Verified from observed request bodies, not by reading the code.
+
+## 2026-09-28 - The now-playing dedupe key is cleared when a session ends
+
+Decision:
+`useListeningStore.finish()` calls `resetNowPlayingDedupe()`, in addition to `pauseLive()` doing so.
+
+Reason:
+A session can end without a pause. At the end of a one-song queue in sequence mode, `playerStore._handleEnded` clears its state and calls `listenFinish(true)` but never calls `listenSetPlaying(false)` — so the dedupe key survived, and replaying that same song sent no now-playing request at all. Last.fm kept showing the earlier announcement while the profile's now-playing went stale, which is what the report described. The key must be tied to the session's lifetime, not to the pause path alone.
+
+## 2026-09-28 - The Last.fm tab shares the page's filter bar and TrackRow's geometry
+
+Decision:
+`LastfmStatsPanel` renders only the three ranked lists, as `px-4 py-2` sections whose rows copy TrackRow's geometry (`gap-3 px-3 py-2 rounded-xl` with an `h-10` avatar → 56px tall). The period selector lives in the 足迹 page's shared filter bar, reusing the same ghost `ListFilter` button as the local tabs but listing Last.fm's own periods. The tab label is text only — no icon. The account buttons use `secondary` rather than the filled `primary`.
+
+Reason:
+An earlier version was a self-contained card with its own header, subtitle, three columns and its own period `Select`, which read as a different kind of screen bolted onto the page rather than a fourth tab. Reusing the shared filter bar and TrackRow's metrics makes the tab indistinguishable in structure from Songs/Artists/Recent, which is what "keep it similar" means in practice. The icon was dropped because the other three tabs are text-only. `primary` next to the outlined Disconnect button looked visibly larger although both measure 36px — a contrast/weight illusion, so the fix is matching weight rather than size.
+
+## 2026-09-28 - Last.fm is a tab on the footprints page, and its credentials are a dialog
+
+Decision:
+The Last.fm stats are a TAB in the 足迹 page's own tab bar, prepended only while the integration is enabled (`listeningTab` gained `"lastfm"` and the list is built from `enabled`). Credentials live in `LastfmCredentialsDialog`, reached from a single account row in Settings → Last.fm; the dialog saves and connects in one action and closes itself when the session key changes. No `font-mono` anywhere — those inputs use the UI font.
+
+Reason:
+Stacking the stats above the local history made the page open with a section most users never look at, and the two are alternative answers to "what have I been listening to", which is what tabs are for. Keeping the tab out of the bar when disabled leaves the page untouched for everyone who has not set Last.fm up, and `activeTab` falls back to `songs` for the window where the stored tab no longer exists rather than rendering a blank page. Credentials moved into a dialog because they are set once and never revisited, and leaving two opaque strings inline pushed the toggles a user does revisit below the fold. `font-mono` was the only monospace text in the app and its default stack clashed with the serif UI face.
+
+## 2026-09-28 - Scrobbling is driven from the listening store, not the player
+
+Decision:
+`useListeningStore` calls `reportNowPlaying(song)` when a session starts or resumes, and `reportListenEnded({song, startedAt, listenedMs, completed, durationMs})` from `finish()`. The player store is untouched; `playerStore` still only calls `listenSetPlaying` / `listenFinish`.
+
+Reason:
+`finish()` is the single point where a listen session closes, whatever closed it — a natural end, a skip, an error, a quality reload, or a track change. Hooking there means one call site covers every ending, whereas hooking the player would need the same logic at each `listenFinish(false)` (there are five). It also puts the scrobble decision next to the data it needs: `listenedMs` and `completed` are already computed there, so `shouldScrobble` gets real facts instead of the player re-deriving them. `reportNowPlaying` is deduped by artist+track because the player announces the current track on every state change, and the dedupe is cleared on pause so a resume re-announces.
+
+## 2026-09-28 - Last.fm lives in the frontend, with the user's own credentials
+
+Decision:
+Last.fm integration is `src/lib/lastfm/{api,scrobble,queue,client}.ts` plus `src/stores/lastfmStore.ts`, with UI in `src/components/settings/LastfmSettings.tsx` (new Settings → Last.fm tab) and `src/components/listening/LastfmStatsPanel.tsx` (top of the 足迹 page). Requests go through `@/lib/http`, i.e. Tauri's HTTP plugin, which bypasses CORS. The app ships **no** bundled API key or secret: each user registers their own free Last.fm API application and pastes both values, which are stored in a separate `lastfm.json` (deliberately absent from `configIO`'s `DB_FILES`, so a config export never carries them). Scrobbles are queued to disk first and only removed once Last.fm settles them.
+
+Reason:
+The reference player (SPlayer) is Electron and dodges CORS with `webSecurity: false`, which Tauri has no equivalent for — but this project already solves that with `plugin-http`, so no Rust proxy is needed. Signing in the frontend is acceptable here specifically because the secret is the *user's own*, not a shared app secret; a bundled secret would be extractable from every install, which is why there is none. The queue exists because a scrobble records something that already happened: a network failure must not lose it, and Last.fm rejects anything older than two weeks (error 3), which is the queue's hard retention bound. `isAuthError` (4/9/26) drops the session and asks the user to reconnect, `isTransientError` (8/11/16/29) backs off instead — the two must not be conflated or a rate limit would log the user out.
+
+## 2026-09-28 - A new playback pass re-arms the ended latch in play() and seek()
+
+Decision:
+`AudioPlayer.play()` and `AudioPlayer.seek()` both reset `endedSent` before doing anything else. `endedSent` is the "this pass already reported its end" latch that stops `emitEnded` firing twice.
+
+Reason:
+`playerStore._handleEnded` implements repeat-one as `seek(0)` + `play()`. It is the only mode that restarts WITHOUT re-attaching a source, and every other restart path re-arms the latch through `setSource` / `setClip` / `startWebPlayback`. So on the HTML `<audio>` backend repeat-one reported one end and then went silent — the reported "repeat-one only loops once". The Web Audio backend masked it because `startWebPlayback` clears the flag. Measured in the audio harness: HTML reached 1 end before timing out, Web Audio reached 3. The same latch is reached without any `seek()` when a ONE-SONG queue wraps: `next()` computes `(queueIndex + 1) % queue.length` = the same index, so `play()` is the only call made and the element rewinds itself — hence the second reset in `play()`. Reverting either reset fails its scenario (1 end, then stuck), so both are load-bearing.
+
+## 2026-09-24 - A song is only dispatched to source scripts that serve its platform
+
+Decision:
+`SourceRunner.getOrderedIds(action, platform)` filters enabled+loaded scripts by the platform they declare in `sources`, and additionally by whether that platform's `actions` list includes the requested action. `getMusicUrl`, `getLyric` and `getPic` each pass their own `payload.source` and action. A script declaring no `sources` at all is kept (there is nothing to check against), and if the PLATFORM filter leaves nothing to ask, the unfiltered list is returned so a lone under-declaring script still plays.
+
+Reason:
+Dispatch previously filtered only on `enabled` + "is loaded", so a `tx` song was handed to every enabled script regardless of the platforms it serves. A script that cannot resolve the id it was given may fall back to looking the track up BY NAME on its own service, which answers with a different recording of the same title — the player bar keeps showing the picked song while another artist is heard. Reported as: QQ Music selected, searched aimyon, played 春日, heard a different Japanese singer. Proven with stub sessions: for one tx song, `script-wy-only` and `script-kw-only` both received a musicUrl request. The action filter is checked separately from the platform filter on purpose: a script that claims a platform but omits an action has made a specific statement about that platform, so it is respected rather than overridden by the fallback (an early version used one combined filter, and the fallback then defeated the action check).
+
+## 2026-09-24 - The desktop-lyrics fit is measured after the layer is committed
+
+Decision:
+`LyricTransition` takes `onLayerMounted`, fired from a layout effect that depends on `layers` and verifies the active layer's element `isConnected`; `DesktopLyricsApp` passes its `measureFit` callback to it. The measurement itself lives in `measureLyricFit(shell, opts)` in `src/lib/desktopLyricsFit.ts`, which finds the active `.desktop-lyrics-lines` layer (the last one) and returns the needed fit or `null`. `fitScale` is mirrored into `fitScaleRef` because the callback is passed down, so reading state directly would capture a stale value.
+
+Reason:
+The parent's fit effect ran when `displayedLyricIndex` changed, but `LyricTransition` mounts the new layer from its OWN layout effect and React runs layout effects child-first — so the parent's ran while the DOM still held only the outgoing layer, and `lines[lines.length - 1]` was the PREVIOUS line. Measured in headless Chromium against the real CSS: for a long new line the effect saw `wanted "这是一句非常非常长的" but the DOM held "短句"`, kept `fitScale` at 1, and the capsule rendered 902px in an 884px viewport. A native window hard-clips its content, so both rounded ends were cut and the capsule read as a rectangle. That also explains the reported workaround exactly: toggling 双行 forced an unrelated re-render while the long line happened to be the mounted layer, so that one line finally got measured and shrunk, and the next line reverted. The callback must depend on `layers` rather than `transitionKey`, because the layout effect that calls `setLayers` does not have its update flushed before the rest of that commit's layout effects run.
+
 ## 2026-09-24 - A per-song quality choice outlives the queue
 
 Decision:
@@ -1166,7 +1394,15 @@ it communicates its visual style. Full-window captures make the actual app
 inspectable, while the SaaS structure keeps the page easy to scan and makes
 the source-script and no-content-distribution boundaries explicit.
 
-## 2026-08-21 - Separate app theme from macOS menu-bar wallpaper appearance
+## 2026-10-02 - The macOS tray mark is one template image, not a polled light/dark pair
+
+Decision:
+The macOS menu-bar mark is a single template image (`src-tauri/icons/tray-template@2x.png`), set with `TrayIconBuilder::icon_as_template(true)`. Its opaque rounded square is knocked out by the EQ bars, so macOS inks it to match the status bar. `src-tauri/src/macos_tray.rs` and the four `tray-light`/`tray-dark` PNGs are deleted. `src-tauri/icons/gen-tray-icons.mjs` regenerates the assets beside them.
+
+Reason:
+macOS template images are inked from the ALPHA channel alone, so one asset covers both appearances and the wallpaper shows through the knockout. The polling it replaces was also unreliable: `status_bar_prefers_dark` used `?` on the button and the appearance match, so any `None` made `sync_tray_icon` return early and leave the previous mode's opaque tile on screen. A template image cannot go stale because the system re-inks it. The generator lives in `src-tauri/icons/`, not `/scripts/`, which is gitignored — that is how the previous generator was lost while `tray-mark.svg` still referenced it.
+
+## 2026-08-21 - Separate app theme from macOS menu-bar wallpaper appearance (superseded 2026-10-02)
 
 Decision:
 Keep the app's light/dark theme controlled by the existing theme settings, but
@@ -1179,3 +1415,13 @@ Reason:
 macOS can render the menu bar according to the desktop wallpaper independently
 of the app window. The tray icon must follow that status-bar surface while the
 app UI continues to follow its own theme mode.
+
+Superseded: the invariant holds, but it is now enforced by a template image rather than by polling and swapping assets. See "The macOS tray mark is one template image".
+
+## 2026-09-28 - Long now-playing text marquees on hover, not always
+
+Decision:
+`MarqueeText` (in `src/components/common/MarqueeText.tsx`) replaces the ellipsized song title and artist in the player bar and on the lyrics page. At rest it renders the same ellipsis as before; when the pointer rests on it for 300ms AND the text actually overflows, the full text scrolls leftward in a seamless loop (~32px/s, one duplicated copy with a 48px gap) and unmounts on leave. `prefers-reduced-motion` users get no scroll; they keep a native `title` tooltip instead. Short or fitting text never mounts the track.
+
+Reason:
+The bar and lyrics page are permanent chrome, and both a title AND an artist could scroll at once — always-on motion there is noise that competes with the lyrics, and auto-started endless scrolling is exactly what WCAG 2.2.2 asks to make pausable. Hover is a deliberate "I want to read this" gesture and upgrades the interaction users already had (the `title` tooltip). Marqueeing only when truncated keeps short titles perfectly still. The loop is measured, not timed: `shift = copyWidth + gap` and `duration = shift / 32` are set inline in the same commit that mounts the track, so a stale distance can never paint; the resize observer re-measures both branches (idle `scrollWidth` for overflow, active `offsetWidth` for the shift) with compare-before-set so it cannot feed back. The track is a block-level `width: max-content` flex, which is why the centered lyrics-page title still starts the scroll from its left edge instead of overflowing both ways.

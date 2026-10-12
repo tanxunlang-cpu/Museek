@@ -1,14 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Footprints,
   ListFilter,
   Play,
+  RefreshCw,
   Search,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -16,7 +18,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TrackRow } from "@/components/common/TrackRow";
+import {
+  LastfmStatsPanel,
+  type LastfmStatsView,
+} from "@/components/listening/LastfmStatsPanel";
 import { useListeningStore } from "@/stores/listeningStore";
+import {
+  cachedStatsFor,
+  useLastfmStore,
+  type LastfmPeriod,
+} from "@/stores/lastfmStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useUiStore } from "@/stores/uiStore";
 import {
@@ -34,8 +45,30 @@ import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const PERIODS: ListenPeriod[] = ["today", "week", "month", "all"];
-const TABS = ["songs", "artists", "recent"] as const;
-type ListenTab = (typeof TABS)[number];
+/**
+ * Last.fm's own period enum. Kept separate from the local `PERIODS` because the
+ * two sets genuinely differ ("today" has no Last.fm equivalent, and Last.fm
+ * offers 3/12 months).
+ */
+const LASTFM_PERIODS: LastfmPeriod[] = [
+  "overall",
+  "7day",
+  "1month",
+  "3month",
+  "12month",
+];
+/**
+ * The Last.fm tab is prepended only while the integration is on, so the tab bar
+ * is unchanged for anyone who has not set it up.
+ */
+const LOCAL_TABS = ["songs", "artists", "recent"] as const;
+type ListenTab = "lastfm" | (typeof LOCAL_TABS)[number];
+
+/**
+ * The three Last.fm lists, in the order they are shown. The keys match the
+ * `lastfm.stats.*` labels, which are also the section titles they replaced.
+ */
+const LASTFM_VIEWS: LastfmStatsView[] = ["topArtists", "topTracks", "recent"];
 
 function matchesQuery(
   query: string,
@@ -58,6 +91,30 @@ function firstGrapheme(name: string): string {
   return first ? first.toLocaleUpperCase() : "?";
 }
 
+/**
+ * Placeholder for the Last.fm list while the first fetch of a launch is in
+ * flight. Mirrors {@link LastfmStatsPanel}'s row geometry — `px-3 py-2` with an
+ * h-10 avatar — so the list does not jump when the real rows arrive, and it sits
+ * in the same `px-4 py-2` body.
+ */
+function LastfmStatsSkeleton() {
+  return (
+    <div className="px-4 py-2" aria-busy="true">
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 px-3 py-2">
+          <Skeleton className="h-4 w-5 shrink-0" />
+          <Skeleton className="h-10 w-10 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="h-3.5 w-2/5 max-w-[12rem]" />
+            <Skeleton className="h-3 w-1/4 max-w-[8rem]" />
+          </div>
+          <Skeleton className="h-3 w-12 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Listening() {
   const t = useT();
   const events = useListeningStore((s) => s.events);
@@ -65,10 +122,47 @@ export function Listening() {
   const playAll = usePlayerStore((s) => s.playAll);
   const tab = useUiStore((s) => s.listeningTab);
   const setTab = useUiStore((s) => s.setListeningTab);
+  const lastfmEnabled = useLastfmStore((s) => s.enabled);
+  const lastfmApiKey = useLastfmStore((s) => s.apiKey);
+  const lastfmUsername = useLastfmStore((s) => s.username);
+  const statsCache = useLastfmStore((s) => s.statsCache);
+  const lastfmStatsLoading = useLastfmStore((s) => s.statsLoading);
+  const lastfmStatsError = useLastfmStore((s) => s.statsError);
+  const loadStats = useLastfmStore((s) => s.loadStats);
+  const loadStatsForTab = useLastfmStore((s) => s.loadStatsForTab);
+  // Build the tab list once: the Last.fm tab leads because it is the only one
+  // backed by an account rather than this device's log.
+  const tabs: ListenTab[] = useMemo(
+    () => (lastfmEnabled ? ["lastfm", ...LOCAL_TABS] : [...LOCAL_TABS]),
+    [lastfmEnabled],
+  );
+  // The stored tab survives switching the integration off (the choice is kept so
+  // it comes back), but a tab that no longer exists must not render an empty
+  // page — fall back to the default without overwriting the stored value.
+  const activeTab: ListenTab = tabs.includes(tab) ? tab : "songs";
   const [period, setPeriod] = useState<ListenPeriod>("week");
+  const [lastfmPeriod, setLastfmPeriod] = useState<LastfmPeriod>("overall");
+  const [lastfmView, setLastfmView] = useState<LastfmStatsView>("topArtists");
   const [artist, setArtist] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const hasHistory = events.length > 0 || live !== null;
+
+  // Stats are read with an api_key alone, so a username is what is actually
+  // required — the same rule the panel used before it moved here.
+  const lastfmCanLoad = Boolean(lastfmApiKey.trim() && lastfmUsername.trim());
+  const stats = cachedStatsFor(statsCache, lastfmPeriod, lastfmUsername);
+
+  // Fetch when the tab is opened. `loadStatsForTab` decides whether that means a
+  // real request: it refreshes once per launch and fills in any period that has
+  // never been fetched, so returning to a period during the same run is instant.
+  //
+  // No `if (stats) return` guard here: a cached period must still refresh on the
+  // first visit of a launch, which is the whole point.
+  useEffect(() => {
+    if (activeTab !== "lastfm" || !lastfmCanLoad) return;
+    void loadStatsForTab(lastfmPeriod);
+  }, [activeTab, lastfmCanLoad, lastfmPeriod, loadStatsForTab]);
+
   // One clock for both the period boundaries and the relative labels, so a page
   // left open does not keep saying "刚刚" an hour later.
   const now = useMinuteTick(hasHistory);
@@ -130,16 +224,16 @@ export function Listening() {
   };
 
   const playable =
-    tab === "artists"
+    activeTab === "artists" || activeTab === "lastfm"
       ? []
-      : tab === "recent"
+      : activeTab === "recent"
         ? recents.map((event) => event.song)
         : songs.map((row) => row.song);
 
   const searchPlaceholder =
-    tab === "artists"
+    activeTab === "artists"
       ? t("listening.searchArtists")
-      : tab === "recent"
+      : activeTab === "recent"
         ? t("listening.searchRecent")
         : t("listening.searchSongs");
 
@@ -147,29 +241,31 @@ export function Listening() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="p-4 border-b border-border flex items-center gap-3">
+      <div className="p-3 sm:p-4 border-b border-border flex flex-wrap items-center gap-2 sm:gap-3">
         <Footprints size={20} className="shrink-0" />
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold leading-tight">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base sm:text-lg font-semibold leading-tight">
             {t("listening.title")}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5 truncate">
-            {empty
-              ? t("listening.subtitle")
-              : t("listening.summary", {
-                  period: t(`listening.period.${period}`),
-                  time: formatListenDuration(periodStats.listenedMs, t),
-                  songs: periodStats.uniqueSongs,
-                  artists: periodStats.uniqueArtists,
-                })}
+            {activeTab === "lastfm"
+              ? t("lastfm.stats.desc")
+              : empty
+                ? t("listening.subtitle")
+                : t("listening.summary", {
+                    period: t(`listening.period.${period}`),
+                    time: formatListenDuration(periodStats.listenedMs, t),
+                    songs: periodStats.uniqueSongs,
+                    artists: periodStats.uniqueArtists,
+                  })}
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="w-full sm:w-auto sm:ml-auto flex items-center justify-between sm:justify-end gap-2">
           {playable.length > 0 && (
             <Button
               variant="secondary"
               size="sm"
-              className="h-8"
+              className="h-8 shrink-0"
               onClick={() => playAll(playable)}
             >
               <Play
@@ -181,25 +277,27 @@ export function Listening() {
               {t("common.playAll")}
             </Button>
           )}
-          <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-1">
-            {TABS.map((id) => (
+          <div className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full bg-muted/70 p-1 overflow-x-auto max-w-full">
+            {tabs.map((id) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => switchTab(id)}
                 className={cn(
-                  "px-3 py-1 rounded-full text-sm font-medium transition-colors",
-                  tab === id
+                  "flex items-center gap-1 px-2.5 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium transition-colors shrink-0 whitespace-nowrap",
+                  activeTab === id
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {t(
-                  id === "songs"
-                    ? "listening.tabSongs"
-                    : id === "artists"
-                      ? "listening.tabArtists"
-                      : "listening.tabRecent",
+                  id === "lastfm"
+                    ? "lastfm.tab"
+                    : id === "songs"
+                      ? "listening.tabSongs"
+                      : id === "artists"
+                        ? "listening.tabArtists"
+                        : "listening.tabRecent",
                 )}
               </button>
             ))}
@@ -207,7 +305,78 @@ export function Listening() {
         </div>
       </div>
 
-      {!empty && (
+      {/* The filter bar is shared by both sources. The Last.fm tab swaps the
+          local period menu for Last.fm's own periods, and adds its three list
+          views, so the whole page keeps one control row. */}
+      {activeTab === "lastfm" ? (
+        <div className="flex h-12 min-h-12 max-h-12 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-4">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5"
+              >
+                <ListFilter size={14} />
+                <span>{t(`lastfm.period.${lastfmPeriod}`)}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {LASTFM_PERIODS.map((id) => (
+                <DropdownMenuCheckboxItem
+                  key={id}
+                  checked={lastfmPeriod === id}
+                  showUncheckedIndicator
+                  onCheckedChange={() => setLastfmPeriod(id)}
+                >
+                  {t(`lastfm.period.${id}`)}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* The three Last.fm lists, presented exactly like the page's own
+              tabs so the two halves of the page agree on how a list is chosen.
+              `text-xs` to match the search page's 歌曲/歌手/专辑 scope picker —
+              these are a secondary choice inside one tab, so they sit a step
+              below the page-level tabs rather than competing with them. */}
+          <div className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-muted/70 p-1">
+            {LASTFM_VIEWS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setLastfmView(id)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  lastfmView === id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t(`lastfm.stats.${id}`)}
+              </button>
+            ))}
+          </div>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            // Disabled while a fetch is running so a second one cannot overlap,
+            // and when there is nothing to fetch with.
+            disabled={lastfmStatsLoading || !lastfmCanLoad}
+            onClick={() => void loadStats(lastfmPeriod)}
+            title={
+              stats ? t("lastfm.stats.reload") : t("lastfm.stats.load")
+            }
+          >
+            <RefreshCw
+              size={15}
+              className={cn(lastfmStatsLoading && "animate-spin")}
+            />
+          </Button>
+        </div>
+      ) : !empty ? (
         <div className="flex h-12 min-h-12 max-h-12 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -236,7 +405,7 @@ export function Listening() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {artist && tab === "songs" && (
+          {artist && activeTab === "songs" && (
             <Button
               variant="secondary"
               size="sm"
@@ -262,9 +431,46 @@ export function Listening() {
             />
           </div>
         </div>
-      )}
+      ) : null}
 
-      {empty ? (
+      {activeTab === "lastfm" ? (
+        // Independent of local history: the account may have plays from other
+        // clients even on a machine that has never played anything.
+        <ScrollArea className="flex-1">
+          {stats ? (
+            // Cached data stays on screen during a background refresh, so the tab
+            // never blanks out to show something it already has. The refresh
+            // button carries the spinner in that case.
+            <LastfmStatsPanel stats={stats} view={lastfmView} />
+          ) : lastfmStatsLoading ? (
+            // Nothing cached to show, so the wait gets a placeholder shaped like
+            // the list it will become rather than a bare line of text.
+            <LastfmStatsSkeleton />
+          ) : (
+            <div className="flex flex-col items-center justify-center px-4 py-20 text-center">
+              <p className="text-sm text-muted-foreground">
+                {lastfmStatsError ??
+                  (lastfmCanLoad
+                    ? t("lastfm.stats.empty")
+                    : t("lastfm.err.notConnected"))}
+              </p>
+              {/* The button is kept here as well as in the filter bar: this is
+                  where the eye already is when the list is empty, and an empty
+                  state that only says "no data" gives no way forward. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-4"
+                disabled={!lastfmCanLoad}
+                onClick={() => void loadStats(lastfmPeriod)}
+              >
+                <RefreshCw size={13} className="mr-1.5" />
+                {t("lastfm.stats.load")}
+              </Button>
+            </div>
+          )}
+        </ScrollArea>
+      ) : empty ? (
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-5xl p-4">
             <div className="flex min-h-[18rem] flex-col items-center justify-center px-4 text-center">
@@ -281,7 +487,7 @@ export function Listening() {
       ) : (
         <ScrollArea className="flex-1">
           <div className="px-4 py-2">
-            {tab === "songs" ? (
+            {activeTab === "songs" ? (
               <SongList
                 rows={songs}
                 emptyLabel={
@@ -293,7 +499,7 @@ export function Listening() {
                   t("listening.playCount", { count })
                 }
               />
-            ) : tab === "artists" ? (
+            ) : activeTab === "artists" ? (
               <ArtistList
                 rows={artists}
                 emptyLabel={

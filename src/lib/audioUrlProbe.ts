@@ -124,9 +124,12 @@ async function fetchContentLength(url: string): Promise<number | null> {
       headers: cdn,
       signal: timeoutSignal(3000),
     })
+    if (head.status === 404 || head.status === 410) return REJECT
     if (head.ok) {
       if (isRejectableContentType(head.headers.get("content-type"))) return REJECT
-      const len = parseInt(head.headers.get("content-length") || "", 10)
+      const rawCl = head.headers.get("content-length")
+      if (rawCl === "0") return REJECT
+      const len = parseInt(rawCl || "", 10)
       if (len > 0) return len
     }
   } catch (err) {
@@ -142,8 +145,10 @@ async function fetchContentLength(url: string): Promise<number | null> {
       headers: { ...cdn, Range: "bytes=0-63" },
       signal: timeoutSignal(3000),
     })
+    if (ranged.status >= 400 && ranged.status !== 416) return REJECT
     const ct = ranged.headers.get("content-type")
     if (isRejectableContentType(ct)) return REJECT
+    if (ranged.headers.get("content-length") === "0") return REJECT
 
     const cr = ranged.headers.get("content-range")
     if (cr) {

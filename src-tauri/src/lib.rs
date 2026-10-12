@@ -21,8 +21,6 @@ use tauri_plugin_fs::FsExt;
 
 #[cfg(target_os = "macos")]
 mod macos_traffic_lights;
-#[cfg(target_os = "macos")]
-mod macos_tray;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod system_fonts;
 
@@ -362,7 +360,15 @@ fn emit_os_media_event(handle: &tauri::AppHandle, event: MediaControlEvent) {
     }
 }
 
+/// Update the OS "Now Playing" surface (macOS Now Playing, Windows SMTC).
+///
+/// The parameter list is the IPC payload shape: `#[tauri::command]` resolves
+/// each argument by its own top-level key (`tauri-macros`' wrapper derives the
+/// key from the parameter name), so `src/lib/smtc.ts` sends these seven fields
+/// flat. Grouping them into a struct would only add a nesting layer to the wire
+/// format, so the count is load-bearing rather than a design smell.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn media_update(
     app: tauri::AppHandle,
     title: String,
@@ -567,6 +573,33 @@ fn reapply_macos_traffic_lights(_app: tauri::AppHandle) {
     macos_traffic_lights::refresh_main(&_app);
 }
 
+/// Re-assert the main window's shadow after the mini-player returns.
+///
+/// Thin wrapper: it looks up the window and defers to
+/// `refresh_macos_window_shadow`, which owns the actual repair — the overlay
+/// re-assert, the shadow toggle and the main-queue ordering. The exit path cannot
+/// call that directly because it is `cfg(target_os = "macos")`, and the frontend
+/// needs one command that exists on every platform.
+///
+/// The caller must request this AFTER issuing the decorations change. Tao applies
+/// a style-mask change through `DispatchQueue::main().exec_async`, so it is still
+/// queued when the Tauri call returns; the repair queues itself on that same GCD
+/// queue and repeats, which is what lets it survive the mask landing late.
+#[tauri::command]
+fn refresh_main_window_shadow(app: tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        refresh_macos_window_shadow(&window);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
+}
+
 /// Read `startHiddenToTray` from the same AppData settings.json the frontend uses.
 fn read_start_hidden_to_tray(app: &tauri::AppHandle) -> bool {
     let Ok(dir) = app.path().app_data_dir() else {
@@ -584,15 +617,54 @@ fn read_start_hidden_to_tray(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// macOS transparent + Overlay windows often keep `hasShadow` true but never
-/// paint the shadow layer if it was set while the window was still invisible
-/// (conf uses `shadow: false` for Windows). Toggle after `show()` forces AppKit
-/// to rebuild it — same effect as hide-to-tray then reopen.
+/// Rebuild the main window's shadow after its style mask changes.
+///
+/// macOS transparent + Overlay windows keep `hasShadow` true but stop painting
+/// the shadow layer once the mask changes, so the value has to be toggled to
+/// make AppKit rebuild it (conf uses `shadow: false` for Windows, which is why
+/// it is asserted at all).
+///
+/// Two things make the toggle unreliable, and both are handled here:
+///
+/// 1. It only rebuilds the layer when the window still carries the Overlay
+///    chrome (`NSWindowStyleMaskFullSizeContentView`). `set_decorations`
+///    rebuilds the style mask from scratch and drops that bit, and tao applies
+///    the rebuilt mask through `DispatchQueue::main().exec_async` — so it can
+///    land AFTER the exit path's `setTitleBarStyle("overlay")` and silently undo
+///    it. Re-asserting overlay immediately before the toggle is what makes the
+///    rebuilt layer survive.
+/// 2. The rebuild has to happen once the mask change has actually landed and the
+///    window is composited again. Issuing it in the same turn as the change
+///    races tao's queued mask application, so it runs on the main queue (FIFO
+///    with tao's own block) and is repeated shortly after, the way the
+///    cold-start path — the one that reliably works — does it.
+///
+/// Running on the main queue also matters because `macos_traffic_lights::apply`
+/// reads the NSWindow directly, which is not thread-safe; the cold-start path
+/// calls in from a worker thread, so the caller cannot be assumed to be on it.
 #[cfg(target_os = "macos")]
 fn refresh_macos_window_shadow(window: &tauri::WebviewWindow) {
-    let _ = window.set_shadow(false);
-    let _ = window.set_shadow(true);
-    macos_traffic_lights::apply(window);
+    for delay_ms in [0_u64, 140] {
+        let window = window.clone();
+        std::thread::spawn(move || {
+            if delay_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            }
+            // Queue on the SAME queue tao uses for its style-mask change, so
+            // this runs after it rather than racing it.
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                // Only rewrite the mask when the Overlay bit is actually gone:
+                // `setStyleMask:` also re-makes the first responder, so doing it
+                // unconditionally on every refresh would steal focus for nothing.
+                if macos_traffic_lights::has_overlay_chrome(&window) == Some(false) {
+                    let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
+                }
+                let _ = window.set_shadow(false);
+                let _ = window.set_shadow(true);
+                macos_traffic_lights::apply(&window);
+            });
+        });
+    }
 }
 
 // Bring the main window back from hidden / minimized and focus it.
@@ -625,6 +697,10 @@ fn show_main(app: &tauri::AppHandle) {
 }
 
 /// Show the main window only if it is hidden or minimized (safe to call often).
+///
+/// Non-macOS only: macOS shows the window from Rust at setup and restores it
+/// through the Dock `Reopen` event, so neither caller exists there.
+#[cfg(not(target_os = "macos"))]
 fn restore_main_if_obscured(app: &tauri::AppHandle) {
     if let Some(mark) = app.try_state::<TrayHideAt>() {
         if let Ok(slot) = mark.0.lock() {
@@ -940,7 +1016,12 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
 
     #[cfg(target_os = "macos")]
     {
-        builder = builder.icon(macos_fallback_tray_icon()?);
+        // A macOS template image is inked from its ALPHA channel alone: the
+        // system paints the opaque area black or white to match the status bar
+        // and lets the wallpaper show through the transparent area. One asset
+        // therefore covers both appearances, so there is no light/dark pair to
+        // swap and nothing to re-sync when the wallpaper changes.
+        builder = builder.icon(macos_tray_icon()?).icon_as_template(true);
     }
     #[cfg(all(not(target_os = "macos"), not(any(target_os = "android", target_os = "ios"))))]
     {
@@ -952,8 +1033,6 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<TrayIcon> {
     }
 
     let tray = builder.build(app)?;
-    #[cfg(target_os = "macos")]
-    macos_tray::sync_after_build(app);
     Ok(tray)
 }
 
@@ -972,12 +1051,12 @@ fn tray_mark_from_cache(app: &tauri::AppHandle) -> Option<tauri::image::Image<'s
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 fn set_tray_mark_icon(app: tauri::AppHandle, png: Vec<u8>) -> Result<(), String> {
-    // macOS uses the bundled light/dark logo selected from the native system
-    // appearance. Do not replace it with the frontend's accent-colored mark.
+    // macOS uses the bundled template logo, which the system inks to match the
+    // menu bar. Do not replace it with the frontend's accent-colored mark.
     #[cfg(target_os = "macos")]
     {
         let _ = (app, png);
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1002,9 +1081,11 @@ fn set_tray_mark_icon(_app: tauri::AppHandle, _png: Vec<u8>) -> Result<(), Strin
     Ok(())
 }
 
+/// The macOS menu-bar mark: a template image whose opaque rounded square is
+/// knocked out by the EQ bars, so it inverts itself for light and dark menu bars.
 #[cfg(target_os = "macos")]
-fn macos_fallback_tray_icon() -> tauri::Result<tauri::image::Image<'static>> {
-    let bytes = include_bytes!("../icons/tray-light@2x.png");
+fn macos_tray_icon() -> tauri::Result<tauri::image::Image<'static>> {
+    let bytes = include_bytes!("../icons/tray-template@2x.png");
     tauri::image::Image::from_bytes(bytes)
 }
 
@@ -1250,7 +1331,7 @@ async fn capture_audio_clip(mode: String, duration_ms: u64) -> Result<CapturedAu
             .map_err(|error| error.to_string())?;
         }
         let _ = mode;
-        return Err("Native microphone capture is unavailable on macOS".to_string());
+        Err("Native microphone capture is unavailable on macOS".to_string())
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
@@ -1409,7 +1490,8 @@ fn probe_cover(
     for tag in tagged.tags() {
         for pic in tag.pictures() {
             let len = pic.data().len();
-            if len < 64 || len > MAX_EMBEDDED_COVER_BYTES {
+            // Embedded covers below 64 B are placeholders, not artwork.
+            if !(64..=MAX_EMBEDDED_COVER_BYTES).contains(&len) {
                 continue;
             }
             let rank = match pic.pic_type() {
@@ -1535,10 +1617,9 @@ async fn check_paths_exist(paths: Vec<String>) -> Vec<bool> {
     tauri::async_runtime::spawn_blocking(move || {
         paths
             .into_iter()
-            .map(|p| match std::path::Path::new(&p).try_exists() {
-                Ok(exists) => exists,
-                Err(_) => true,
-            })
+            // Treat an unstattable path as present: a permission error must not
+            // read as "missing" and trigger a destructive cleanup.
+            .map(|p| std::path::Path::new(&p).try_exists().unwrap_or(true))
             .collect::<Vec<bool>>()
     })
     .await
@@ -1744,9 +1825,6 @@ pub fn run() {
                 }
             }
 
-            #[cfg(target_os = "macos")]
-            macos_tray::observe_appearance(app.handle());
-
             if let Some(window) = app.get_webview_window("lyrics") {
                 let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
                 #[cfg(target_os = "windows")]
@@ -1780,6 +1858,7 @@ pub fn run() {
             is_autostart_launch,
             should_start_hidden,
             reapply_macos_traffic_lights,
+            refresh_main_window_shadow,
             list_font_families,
             check_paths_exist
         ])

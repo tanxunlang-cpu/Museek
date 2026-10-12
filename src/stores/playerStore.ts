@@ -584,13 +584,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         holdRestoredClock = false;
         if (fromCache) {
           const resumeAt = consumeResume(song.id);
-          await audioPlayer.whenReady();
-          if (!isPlayGenerationCurrent(gen)) return;
-          if (resumeAt > 0) audioPlayer.seek(resumeAt);
+          if (resumeAt > 0 || reloadAt > 0 || src.startsWith("blob:")) {
+            await audioPlayer.whenReady();
+            if (!isPlayGenerationCurrent(gen)) return;
+            if (resumeAt > 0) audioPlayer.seek(resumeAt);
+          }
         } else {
           clearResume();
-          await audioPlayer.whenReady();
-          if (!isPlayGenerationCurrent(gen)) return;
+          if (reloadAt > 0 || src.startsWith("blob:")) {
+            await audioPlayer.whenReady();
+            if (!isPlayGenerationCurrent(gen)) return;
+          }
         }
         // Restore the position captured before a forced quality reload.
         if (reloadAt > 0) audioPlayer.seek(reloadAt);
