@@ -55,6 +55,8 @@ class AudioPlayer {
   private htmlLoadId = 0;
   /** `htmlLoadId` for which loadedmetadata has fired. */
   private htmlReadyFor = 0;
+  /** `htmlLoadId` for which `awaitHtmlPlayback` has succeeded. */
+  private htmlPlaySucceededFor = 0;
   /** Inclusive file-time start of the active CUE clip; 0 = beginning of file. */
   private clipStart = 0;
   /** Exclusive file-time end of the active CUE clip; null = whole file. */
@@ -130,6 +132,11 @@ class AudioPlayer {
     audio.addEventListener("error", () => {
       if (!htmlActive()) return;
       this.stopSmoothClock();
+      // While initial playback is still being established (`htmlPlaySucceededFor !== htmlLoadId`),
+      // deliver the error through the rejected `play()` promise (`awaitHtmlPlayback`) so
+      // `playerStore.play()` can fall back to `resolveProxiedBlobSrc` or retry a fresh URL
+      // without firing a premature error toast.
+      if (this.htmlPlaySucceededFor !== this.htmlLoadId) return;
       // Classify by `MediaError.code` rather than `message`: a plain 404 was
       // measured to produce `message === ""`, which rendered the toast as
       // `播放失败：` with nothing after it, and when a message *is* present it is
@@ -354,6 +361,7 @@ class AudioPlayer {
    */
   private awaitHtmlPlayback(playPromise: Promise<void>): Promise<void> {
     const audio = this.element;
+    const loadId = this.htmlLoadId;
     const stallMs = this.isAssetLikeUrl(this.sourceUrl) ? 20_000 : 6_000;
     return new Promise<void>((resolve, reject) => {
       let done = false;
@@ -363,10 +371,23 @@ class AudioPlayer {
         done = true;
         window.clearTimeout(timer);
         audio.removeEventListener("playing", onPlaying);
-        if (error) reject(error);
-        else resolve();
+        audio.removeEventListener("error", onError);
+        if (error) {
+          reject(error);
+        } else {
+          this.htmlPlaySucceededFor = loadId;
+          resolve();
+        }
       };
       const onPlaying = () => finish();
+      const onError = () => {
+        finish(
+          new Error(
+            describeMediaError(audio.error?.code, audio.error?.message) ??
+              AUDIO_STALLED,
+          ),
+        );
+      };
       const timer = window.setTimeout(() => {
         if (audio.error) {
           finish(
@@ -387,6 +408,7 @@ class AudioPlayer {
         finish(new Error(AUDIO_STALLED));
       }, stallMs);
       audio.addEventListener("playing", onPlaying);
+      audio.addEventListener("error", onError);
       playPromise.then(
         () => {
           playAccepted = true;

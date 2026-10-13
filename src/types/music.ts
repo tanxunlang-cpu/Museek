@@ -6,6 +6,7 @@ export type LocalNameMode = "filename" | "smart";
 export interface MusicQuality {
   type: Quality;
   size: string | null;
+  hash?: string;
 }
 
 export interface MusicInfoMeta {
@@ -13,7 +14,7 @@ export interface MusicInfoMeta {
   albumId?: string;
   picUrl?: string | null;
   qualitys: MusicQuality[];
-  _qualitys: Partial<Record<Quality, { size: string | null }>>;
+  _qualitys: Partial<Record<Quality, { size: string | null; hash?: string }>>;
   // kg-specific
   hash?: string;
   // tx-specific

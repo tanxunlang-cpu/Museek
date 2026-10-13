@@ -30,12 +30,15 @@ interface SourceState {
   setScriptSources: (id: string, sources: unknown) => void;
   setProbeResult: (id: string, result: SourceProbeResult) => void;
   loadFromDisk: () => Promise<void>;
+  ensureReady: () => Promise<void>;
   clearError: () => void;
 }
 
 function generateId(): string {
   return `user_api_${Math.random().toString(36).slice(2)}_${Date.now()}`;
 }
+
+let inFlightLoadFromDisk: Promise<void> | null = null;
 
 export const useSourceStore = create<SourceState>((set, get) => ({
   scripts: [],
@@ -168,91 +171,119 @@ export const useSourceStore = create<SourceState>((set, get) => ({
     });
   },
 
+  async ensureReady() {
+    if (sourceRunner.isReady()) return;
+    if (inFlightLoadFromDisk) {
+      await inFlightLoadFromDisk;
+      if (sourceRunner.isReady()) return;
+    }
+    await get().loadFromDisk();
+  },
+
   async loadFromDisk() {
-    const [diskScripts, storedProbe] = await Promise.all([
-      loadSourceScripts(),
-      loadSourceProbeResults(),
-    ]);
-    const builtinScripts = getBuiltinSourceScripts();
-    const BUILTIN_MIGRATION_VER = "3.11.4-r2";
-    const migratedVer =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem("museek_builtin_sources_ver")
-        : null;
+    if (inFlightLoadFromDisk) return inFlightLoadFromDisk;
+    const run = async () => {
+      const [diskScripts, storedProbe] = await Promise.all([
+        loadSourceScripts(),
+        loadSourceProbeResults(),
+      ]);
+      const builtinScripts = getBuiltinSourceScripts();
+      const BUILTIN_MIGRATION_VER = "3.11.5-r1";
+      const migratedVer =
+        typeof localStorage !== "undefined"
+          ? localStorage.getItem("museek_builtin_sources_ver")
+          : null;
 
-    let scripts = diskScripts;
-    if (!diskScripts || diskScripts.length === 0) {
-      scripts = builtinScripts;
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem("museek_builtin_sources_ver", BUILTIN_MIGRATION_VER);
-      }
-      saveSourceScripts(scripts);
-    } else if (migratedVer !== BUILTIN_MIGRATION_VER) {
-      // Upgrade migration: preserve custom user-imported scripts at the top,
-      // and refresh all 26 builtin sources to enabled=true in verified priority order.
-      const userScripts = diskScripts.filter(
-        (s) => !s.id.startsWith("builtin_") && !s.url?.startsWith("builtin:"),
-      );
-      scripts = [...userScripts, ...builtinScripts];
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem("museek_builtin_sources_ver", BUILTIN_MIGRATION_VER);
-      }
-      saveSourceScripts(scripts);
-    } else {
-      const existingUrlsOrIds = new Set(
-        scripts.map((s) => s.url || s.id).filter(Boolean) as string[],
-      );
-      const missingBuiltins = builtinScripts.filter(
-        (b) =>
-          (!b.url || !existingUrlsOrIds.has(b.url)) &&
-          !existingUrlsOrIds.has(b.id),
-      );
-      if (missingBuiltins.length > 0) {
-        scripts = [
-          ...scripts,
-          ...missingBuiltins.map((b) => ({ ...b })),
-        ];
-        saveSourceScripts(scripts);
-      }
-    }
-    const known = new Set(scripts.map((s) => s.id));
-    const probeResults = Object.fromEntries(
-      Object.entries(storedProbe).filter(([id]) => known.has(id)),
-    );
-    if (Object.keys(probeResults).length !== Object.keys(storedProbe).length) {
-      saveSourceProbeResults(probeResults);
-    }
-    set({ scripts, probeResults });
-    sourceRunner.setScripts(scripts);
-
-    // Load the first 8 enabled sources (Wave 1) immediately so playback is ready
-    // within < 300ms, then load the remaining enabled sources in background batches
-    // of 6 so spawning 26 workers does not spike mobile WebView CPU at startup.
-    const enabledScripts = scripts.filter((s) => s.enabled);
-    const loadOne = async (script: SourceScript) => {
-      try {
-        const sources = await sourceRunner.loadScript(script);
-        if (sources && Object.keys(sources).length > 0) {
-          get().setScriptSources(script.id, sources);
+      let scripts = diskScripts;
+      if (!diskScripts || diskScripts.length === 0) {
+        scripts = builtinScripts;
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(
+            "museek_builtin_sources_ver",
+            BUILTIN_MIGRATION_VER,
+          );
         }
-      } catch {
-        // skip sources that fail to load/init
+        saveSourceScripts(scripts);
+      } else if (migratedVer !== BUILTIN_MIGRATION_VER) {
+        // Upgrade migration: preserve custom user-imported scripts at the top,
+        // and refresh all 25 builtin sources to enabled=true in verified priority order.
+        const userScripts = diskScripts.filter(
+          (s) =>
+            !s.id.startsWith("builtin_") && !s.url?.startsWith("builtin:"),
+        );
+        scripts = [...userScripts, ...builtinScripts];
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(
+            "museek_builtin_sources_ver",
+            BUILTIN_MIGRATION_VER,
+          );
+        }
+        saveSourceScripts(scripts);
+      } else {
+        const existingUrlsOrIds = new Set(
+          scripts.map((s) => s.url || s.id).filter(Boolean) as string[],
+        );
+        const missingBuiltins = builtinScripts.filter(
+          (b) =>
+            (!b.url || !existingUrlsOrIds.has(b.url)) &&
+            !existingUrlsOrIds.has(b.id),
+        );
+        if (missingBuiltins.length > 0) {
+          scripts = [
+            ...scripts,
+            ...missingBuiltins.map((b) => ({ ...b })),
+          ];
+          saveSourceScripts(scripts);
+        }
+        // Self-heal if all scripts were accidentally disabled
+        if (!scripts.some((s) => s.enabled)) {
+          scripts = scripts.map((s) => ({ ...s, enabled: true }));
+          saveSourceScripts(scripts);
+        }
+      }
+      const known = new Set(scripts.map((s) => s.id));
+      const probeResults = Object.fromEntries(
+        Object.entries(storedProbe).filter(([id]) => known.has(id)),
+      );
+      if (Object.keys(probeResults).length !== Object.keys(storedProbe).length) {
+        saveSourceProbeResults(probeResults);
+      }
+      set({ scripts, probeResults });
+      sourceRunner.setScripts(scripts);
+
+      // Load the first 8 enabled sources (Wave 1) immediately so playback is ready
+      // within < 300ms, then load the remaining enabled sources in background batches
+      // of 6 so spawning 25 workers does not spike mobile WebView CPU at startup.
+      const enabledScripts = scripts.filter((s) => s.enabled);
+      const loadOne = async (script: SourceScript) => {
+        try {
+          const sources = await sourceRunner.loadScript(script);
+          if (sources && Object.keys(sources).length > 0) {
+            get().setScriptSources(script.id, sources);
+          }
+        } catch {
+          // skip sources that fail to load/init
+        }
+      };
+
+      const primaryWave = enabledScripts.slice(0, 8);
+      const remainingScripts = enabledScripts.slice(8);
+
+      await Promise.allSettled(primaryWave.map(loadOne));
+
+      if (remainingScripts.length > 0) {
+        void (async () => {
+          const BATCH_SIZE = 6;
+          for (let i = 0; i < remainingScripts.length; i += BATCH_SIZE) {
+            const batch = remainingScripts.slice(i, i + BATCH_SIZE);
+            await Promise.allSettled(batch.map(loadOne));
+          }
+        })();
       }
     };
-
-    const primaryWave = enabledScripts.slice(0, 8);
-    const remainingScripts = enabledScripts.slice(8);
-
-    await Promise.allSettled(primaryWave.map(loadOne));
-
-    if (remainingScripts.length > 0) {
-      void (async () => {
-        const BATCH_SIZE = 6;
-        for (let i = 0; i < remainingScripts.length; i += BATCH_SIZE) {
-          const batch = remainingScripts.slice(i, i + BATCH_SIZE);
-          await Promise.allSettled(batch.map(loadOne));
-        }
-      })();
-    }
+    inFlightLoadFromDisk = run().finally(() => {
+      inFlightLoadFromDisk = null;
+    });
+    return inFlightLoadFromDisk;
   },
 }));

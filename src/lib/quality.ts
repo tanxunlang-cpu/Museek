@@ -67,9 +67,11 @@ export function bestQuality(song: MusicInfo): Quality | null {
   return QUALITY_RANK.find((q) => available.has(q)) ?? null
 }
 
-/** Build the `_qualitys` size map used by lx-music scripts and VIP size probes. */
+/** Build the `_qualitys` size/hash map used by lx-music scripts and VIP size probes. */
 export function indexQualitySizes(qualitys: MusicQuality[]): MusicInfoMeta["_qualitys"] {
   const _qualitys: MusicInfoMeta["_qualitys"] = {}
-  for (const q of qualitys) _qualitys[q.type] = { size: q.size }
+  for (const q of qualitys) {
+    _qualitys[q.type] = q.hash ? { size: q.size, hash: q.hash } : { size: q.size }
+  }
   return _qualitys
 }

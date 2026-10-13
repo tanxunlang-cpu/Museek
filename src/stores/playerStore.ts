@@ -35,6 +35,7 @@ import { setPreventSleep } from "@/lib/power";
 import { useLocalMusicStore } from "@/stores/localMusicStore";
 import { useListeningStore } from "@/stores/listeningStore";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { useSourceStore } from "@/stores/sourceStore";
 import { t } from "@/lib/i18n";
 import { formatRemotePlayError, isIgnorablePlayError } from "@/lib/playError";
 import { isRedundantPlayRequest } from "@/lib/playRequest";
@@ -335,9 +336,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         override ?? quality ?? useSettingsStore.getState().playQuality;
       const hasOverride = Boolean(override);
 
-      // No source loaded → can't resolve a playback URL. Prompt to import instead
-      // of silently failing. Local files play from disk and need no lx source.
+      // Ensure builtin sources finish initializing if play() is clicked right at startup.
       if (!isLocal && !sourceRunner.isReady()) {
+        await useSourceStore.getState().ensureReady();
+      }
+      if (!isLocal && !sourceRunner.isReady() && song.source !== "wy") {
         notify({
           message: t("player.noSource"),
           variant: "error",

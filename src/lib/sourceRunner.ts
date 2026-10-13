@@ -7,6 +7,8 @@ import { looksLikeRealAudio } from "@/lib/audioUrlProbe";
 import { isHostTrusted } from "@/lib/hostHealth";
 import { createAsyncCache } from "@/lib/cache";
 import { getWyBuiltinMusicUrl } from "@/lib/playlists/wyUrl";
+import { platformSearchFns } from "@/lib/platformArtist";
+import { pickBestMatch } from "@/lib/lyrics/matchSong";
 import type { SourceScript, SourceRegistry, LxRequestPayload } from "@/types/source";
 import { isMobile } from "@/lib/os";
 import type { LyricInfo, MusicInfo, OnlineSource, Quality } from "@/types/music";
@@ -175,7 +177,12 @@ export class SourceRunner {
       }
     }
 
-    return matched.map((s) => s.id);
+    if (matched.length > 0) {
+      return matched.map((s) => s.id);
+    }
+
+    // Fallback to all enabled+loaded scripts if none explicitly listed this platform
+    return scripts.map((s) => s.id);
   }
 
   /** Enabled, loaded source ids in list order — changes when the user edits sources. */
@@ -371,6 +378,82 @@ export class SourceRunner {
     });
   }
 
+  /**
+   * Automatic cross-platform fallback when a song is unavailable/taken down on its
+   * original platform: searches the other platforms in parallel, matches the same
+   * recording (title + artist + duration), and resolves a playable URL.
+   */
+  private async resolveCrossPlatformUrl(
+    song: MusicInfo,
+    preferred: Quality,
+  ): Promise<{ url: string; quality: Quality }> {
+    const query = [song.name, song.singer].filter(Boolean).join(" ").trim();
+    if (!query) throw new Error(t("sources.err.allFailed"));
+
+    const allPlatforms: OnlineSource[] = ["wy", "kw", "tx", "kg", "mg"];
+    const fallbackPlatforms = allPlatforms.filter((p) => p !== song.source);
+
+    const tryPlatform = async (
+      platform: OnlineSource,
+    ): Promise<{ url: string; quality: Quality }> => {
+      const { list } = await withTimeout(
+        platformSearchFns[platform](query, 1, 12),
+        3_500,
+        `fallbackSearch:${platform}`,
+      );
+      if (!list?.length) throw new Error(`empty search on ${platform}`);
+
+      const matched =
+        pickBestMatch(song, list) ??
+        list.find(
+          (item) =>
+            item.name.trim().toLowerCase() === song.name.trim().toLowerCase(),
+        );
+      if (!matched) throw new Error(`no match on ${platform}`);
+
+      const tiers: Quality[] =
+        preferred === "128k" ? ["128k"] : [preferred, "128k"];
+      for (const q of tiers) {
+        try {
+          if (matched.source === "wy") {
+            const url = await raceFirst([
+              this.getMusicUrl({
+                source: matched.source,
+                action: "musicUrl",
+                info: matched,
+                type: q,
+              }),
+              withTimeout(
+                (async () => {
+                  const u = await getWyBuiltinMusicUrl(matched.meta.songId, q);
+                  if (!(await looksLikeRealAudio(u, matched, q))) {
+                    throw new Error("wy builtin probe failed");
+                  }
+                  return u;
+                })(),
+                MUSIC_URL_ATTEMPT_MS,
+                "fallback:wy-builtin",
+              ),
+            ]);
+            return { url, quality: q };
+          }
+          const url = await this.getMusicUrl({
+            source: matched.source,
+            action: "musicUrl",
+            info: matched,
+            type: q,
+          });
+          return { url, quality: q };
+        } catch {
+          // try next quality tier
+        }
+      }
+      throw new Error(`resolve failed on ${platform}`);
+    };
+
+    return raceFirst(fallbackPlatforms.map(tryPlatform));
+  }
+
   // Resolve a playback URL starting at `preferred`, stepping down the quality
   // ladder with a 900ms hedged fallback so slow/unavailable high-bitrate tiers
   // (e.g. 320k/FLAC) never stall playback start when a fast lower tier is ready.
@@ -431,66 +514,81 @@ export class SourceRunner {
       return { url, quality };
     };
 
-    if (candidates.length === 1) {
-      return tryQuality(candidates[0], 0);
-    }
+    const resolvePrimary = (): Promise<{ url: string; quality: Quality }> => {
+      if (candidates.length === 1) {
+        return tryQuality(candidates[0], 0);
+      }
 
-    // Staggered hedge: start candidate 0 immediately; start candidate i+1 either
-    // when candidate i fails OR after HEDGE_MS (900ms), whichever comes first.
-    const HEDGE_MS = 900;
-    return new Promise<{ url: string; quality: Quality }>((resolve, reject) => {
-      let settled = false;
-      let pending = candidates.length;
-      let nextIdx = 0;
-      let lastErr: unknown;
-      const timers: ReturnType<typeof setTimeout>[] = [];
+      // Staggered hedge: start candidate 0 immediately; start candidate i+1 either
+      // when candidate i fails OR after HEDGE_MS (900ms), whichever comes first.
+      const HEDGE_MS = 900;
+      return new Promise<{ url: string; quality: Quality }>((resolve, reject) => {
+        let settled = false;
+        let pending = candidates.length;
+        let nextIdx = 0;
+        let lastErr: unknown;
+        const timers: ReturnType<typeof setTimeout>[] = [];
 
-      const clearAllTimers = () => {
-        for (const tId of timers) clearTimeout(tId);
-        timers.length = 0;
-      };
+        const clearAllTimers = () => {
+          for (const tId of timers) clearTimeout(tId);
+          timers.length = 0;
+        };
 
-      const launchNext = () => {
-        if (settled || nextIdx >= candidates.length) return;
-        const idx = nextIdx++;
-        const q = candidates[idx];
+        const launchNext = () => {
+          if (settled || nextIdx >= candidates.length) return;
+          const idx = nextIdx++;
+          const q = candidates[idx];
 
-        if (nextIdx < candidates.length) {
-          const tId = setTimeout(() => {
-            launchNext();
-          }, HEDGE_MS);
-          timers.push(tId);
-        }
+          if (nextIdx < candidates.length) {
+            const tId = setTimeout(() => {
+              launchNext();
+            }, HEDGE_MS);
+            timers.push(tId);
+          }
 
-        void tryQuality(q, idx).then(
-          (res) => {
-            if (settled) return;
-            settled = true;
-            clearAllTimers();
-            resolve(res);
-          },
-          (err) => {
-            if (settled) return;
-            lastErr = err;
-            pending -= 1;
-            if (pending === 0) {
+          void tryQuality(q, idx).then(
+            (res) => {
+              if (settled) return;
               settled = true;
               clearAllTimers();
-              reject(
-                lastErr instanceof Error
-                  ? lastErr
-                  : new Error(t("sources.err.noEnabled")),
-              );
-              return;
-            }
-            // Immediately trigger the next quality tier without waiting for HEDGE_MS
-            launchNext();
-          },
-        );
-      };
+              resolve(res);
+            },
+            (err) => {
+              if (settled) return;
+              lastErr = err;
+              pending -= 1;
+              if (pending === 0) {
+                settled = true;
+                clearAllTimers();
+                reject(
+                  lastErr instanceof Error
+                    ? lastErr
+                    : new Error(t("sources.err.noEnabled")),
+                );
+                return;
+              }
+              // Immediately trigger the next quality tier without waiting for HEDGE_MS
+              launchNext();
+            },
+          );
+        };
 
-      launchNext();
-    });
+        launchNext();
+      });
+    };
+
+    try {
+      return await resolvePrimary();
+    } catch (primaryErr) {
+      if (opts?.betterThan || song.source === "local") {
+        throw primaryErr;
+      }
+      try {
+        return await this.resolveCrossPlatformUrl(song, preferred);
+      } catch {
+        throw primaryErr;
+      }
+    }
   }
 
   async getLyric(payload: LxRequestPayload): Promise<LyricInfo | null> {

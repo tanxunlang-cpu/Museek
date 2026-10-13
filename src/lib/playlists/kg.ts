@@ -162,8 +162,11 @@ interface KgSpecialSongRaw {
   audio_id?: string | number
   duration?: number
   filesize?: number
+  "320hash"?: string
   "320filesize"?: number
+  sqhash?: string
   sqfilesize?: number
+  hash_high?: string
   filesize_high?: number
   remark?: string
   trans_param?: { union_cover?: string }
@@ -197,6 +200,9 @@ interface KgGlobalSongRaw {
 interface KgAudioInfoRaw {
   audio_id?: string | number
   hash?: string
+  hash_320?: string
+  hash_flac?: string
+  hash_high?: string
   filesize?: string
   filesize_320?: string
   filesize_flac?: string
@@ -223,11 +229,11 @@ function normalizeKgSpecialSong(raw: KgSpecialSongRaw): MusicInfo | null {
   if (!songId || songId === "undefined" || !raw.hash) return null
 
   const qualitys: MusicQuality[] = []
-  if (raw.filesize) qualitys.push({ type: "128k", size: sizeFormate(raw.filesize) })
-  if (raw["320filesize"]) qualitys.push({ type: "320k", size: sizeFormate(raw["320filesize"]) })
-  if (raw.sqfilesize) qualitys.push({ type: "flac", size: sizeFormate(raw.sqfilesize) })
-  if (raw.filesize_high) qualitys.push({ type: "flac24bit", size: sizeFormate(raw.filesize_high) })
-  if (qualitys.length === 0) qualitys.push({ type: "128k", size: null })
+  if (raw.filesize) qualitys.push({ type: "128k", size: sizeFormate(raw.filesize), hash: raw.hash })
+  if (raw["320filesize"]) qualitys.push({ type: "320k", size: sizeFormate(raw["320filesize"]), hash: raw["320hash"] || raw.hash })
+  if (raw.sqfilesize) qualitys.push({ type: "flac", size: sizeFormate(raw.sqfilesize), hash: raw.sqhash || raw["320hash"] || raw.hash })
+  if (raw.filesize_high) qualitys.push({ type: "flac24bit", size: sizeFormate(raw.filesize_high), hash: raw.hash_high || raw.sqhash || raw.hash })
+  if (qualitys.length === 0) qualitys.push({ type: "128k", size: null, hash: raw.hash })
 
   const _qualitys = indexQualitySizes(qualitys)
 
@@ -266,14 +272,14 @@ function normalizeKgGatewaySong(raw: KgGatewaySong): MusicInfo | null {
 
   const qualitys: MusicQuality[] = []
   if (audio.filesize && audio.filesize !== "0")
-    qualitys.push({ type: "128k", size: sizeFormate(parseInt(audio.filesize)) })
+    qualitys.push({ type: "128k", size: sizeFormate(parseInt(audio.filesize)), hash: audio.hash })
   if (audio.filesize_320 && audio.filesize_320 !== "0")
-    qualitys.push({ type: "320k", size: sizeFormate(parseInt(audio.filesize_320)) })
+    qualitys.push({ type: "320k", size: sizeFormate(parseInt(audio.filesize_320)), hash: audio.hash_320 || audio.hash })
   if (audio.filesize_flac && audio.filesize_flac !== "0")
-    qualitys.push({ type: "flac", size: sizeFormate(parseInt(audio.filesize_flac)) })
+    qualitys.push({ type: "flac", size: sizeFormate(parseInt(audio.filesize_flac)), hash: audio.hash_flac || audio.hash_320 || audio.hash })
   if (audio.filesize_high && audio.filesize_high !== "0")
-    qualitys.push({ type: "flac24bit", size: sizeFormate(parseInt(audio.filesize_high)) })
-  if (qualitys.length === 0) qualitys.push({ type: "128k", size: null })
+    qualitys.push({ type: "flac24bit", size: sizeFormate(parseInt(audio.filesize_high)), hash: audio.hash_high || audio.hash_flac || audio.hash })
+  if (qualitys.length === 0) qualitys.push({ type: "128k", size: null, hash: audio.hash })
 
   const _qualitys = indexQualitySizes(qualitys)
 

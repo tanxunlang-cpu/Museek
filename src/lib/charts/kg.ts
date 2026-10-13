@@ -86,11 +86,11 @@ function formatSingers(authors: KgAuthorRaw[] | undefined): string {
 
 function normalizeKgBangSong(raw: KgBangSongRaw): MusicInfo {
   const qualitys: MusicQuality[] = []
-  if (raw.filesize) qualitys.push({ type: "128k", size: sizeFormate(raw.filesize) })
-  if (raw["320filesize"]) qualitys.push({ type: "320k", size: sizeFormate(raw["320filesize"]) })
-  if (raw.sqfilesize) qualitys.push({ type: "flac", size: sizeFormate(raw.sqfilesize) })
-  if (raw.filesize_high) qualitys.push({ type: "flac24bit", size: sizeFormate(raw.filesize_high) })
-  if (qualitys.length === 0) qualitys.push({ type: "128k", size: null })
+  if (raw.filesize) qualitys.push({ type: "128k", size: sizeFormate(raw.filesize), hash: raw.hash })
+  if (raw["320filesize"]) qualitys.push({ type: "320k", size: sizeFormate(raw["320filesize"]), hash: raw["320hash"] || raw.hash })
+  if (raw.sqfilesize) qualitys.push({ type: "flac", size: sizeFormate(raw.sqfilesize), hash: raw.sqhash || raw["320hash"] || raw.hash })
+  if (raw.filesize_high) qualitys.push({ type: "flac24bit", size: sizeFormate(raw.filesize_high), hash: raw.hash_high || raw.sqhash || raw.hash })
+  if (qualitys.length === 0) qualitys.push({ type: "128k", size: null, hash: raw.hash })
 
   const _qualitys = indexQualitySizes(qualitys)
 

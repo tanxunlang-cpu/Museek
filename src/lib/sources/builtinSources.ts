@@ -15,27 +15,27 @@ const DEFAULT_BUILTIN_SOURCES: SourceScript["sources"] = {
   wy: {
     type: "music",
     actions: ["musicUrl"],
-    qualitys: ["128k", "320k", "flac"],
+    qualitys: ["128k", "320k", "flac", "flac24bit"],
   },
   kw: {
     type: "music",
     actions: ["musicUrl"],
-    qualitys: ["128k", "320k", "flac"],
+    qualitys: ["128k", "320k", "flac", "flac24bit"],
   },
   kg: {
     type: "music",
     actions: ["musicUrl"],
-    qualitys: ["128k", "320k", "flac"],
+    qualitys: ["128k", "320k", "flac", "flac24bit"],
   },
   tx: {
     type: "music",
     actions: ["musicUrl"],
-    qualitys: ["128k", "320k", "flac"],
+    qualitys: ["128k", "320k", "flac", "flac24bit"],
   },
   mg: {
     type: "music",
     actions: ["musicUrl"],
-    qualitys: ["128k", "320k", "flac"],
+    qualitys: ["128k", "320k", "flac", "flac24bit"],
   },
 };
 
@@ -69,26 +69,31 @@ export function getBuiltinSourceScripts(): SourceScript[] {
 
   // Rank priorities: top end-to-end verified multi-platform 206 audio stream sources first
   const priorityKeywords = [
-    "裤佬",
+    "二改整合版",
+    "墨澜音乐源v2.3.0",
+    "聚合api接口",
     "stellarwave",
-    "墨澜音乐源v2.3",
-    "西瓜",
-    "gdstudio",
-    "墨澜聚合",
+    "回避聚合",
+    "xinghai-music-sourcev2.3.13",
+    "西瓜聚合",
     "k×h",
-    "玉宁熙",
-    "xinghai-music-sourcev2.3.11",
-    "溯音",
-    "非常刀",
-    "收集の聚合",
-    "星澜",
-    "幻音",
+    "gdstudio",
     "hei music",
-    "忆音",
     "念心",
+    "星澜",
+    "收集の聚合",
+    "溯音",
+    "墨澜音乐源v2.3.4",
+    "玉宁熙",
+    "裤佬",
+    "非常刀",
+    "幻音",
+    "忆音",
     "音乐下载器",
     "全豆要",
-    "星海2.3.8",
+    "hywmusic",
+    "统一音乐源",
+    "260809",
   ];
   const getRank = (name: string, file: string) => {
     const s = (name + " " + file).toLowerCase();
