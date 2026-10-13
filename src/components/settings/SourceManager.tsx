@@ -73,7 +73,9 @@ function looksLikeScript(raw: string): boolean {
 
 function scriptOrigin(script: SourceScript): ScriptOrigin {
   if (!script.url) return "unknown"
-  if (script.url.startsWith("local:")) return "file"
+  if (script.url.startsWith("local:") || script.url.startsWith("builtin:")) {
+    return "file"
+  }
   return "url"
 }
 

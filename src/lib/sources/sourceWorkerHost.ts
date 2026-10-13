@@ -153,10 +153,15 @@ export class SourceWorkerHost {
         setTimeout(() => {
           if (!settled) {
             settled = true
-            if (registeredHandler) resolve(undefined)
-            else reject(new Error("Script did not register a request handler"))
+            if (!registeredHandler) {
+              this.inThreadHandler = () =>
+                Promise.reject(
+                  new Error("source remote init endpoint unavailable"),
+                )
+            }
+            resolve(undefined)
           }
-        }, 1500)
+        }, 1200)
       }
     })
   }

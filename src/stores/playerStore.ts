@@ -16,6 +16,7 @@ import {
   isPlayGenerationCurrent,
   rememberQualityUpgradeMiss,
   resolvePlayableSrc,
+  resolveProxiedBlobSrc,
   revokeCurrentObjectUrl,
   shouldAttemptQualityUpgrade,
 } from "@/lib/playback";
@@ -531,6 +532,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         let src: string;
         let actual: Quality;
         let fromCache = false;
+        let resolvedNetworkUrl: string | null = null;
 
         if (meeting) {
           src = meeting.src;
@@ -549,6 +551,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
             );
             if (!isPlayGenerationCurrent(gen)) return;
             actual = resolved.quality;
+            resolvedNetworkUrl = resolved.url;
             if (!qualityMeets(actual, preferred)) {
               rememberQualityUpgradeMiss(song, preferred);
             }
@@ -600,7 +603,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         if (reloadAt > 0) audioPlayer.seek(reloadAt);
         set({ sourceReady: true });
         persistPlaybackSession(true);
-        await playWithTimeout();
+        try {
+          await playWithTimeout();
+        } catch (streamErr) {
+          if (
+            !isPlayGenerationCurrent(gen) ||
+            fromCache ||
+            !resolvedNetworkUrl ||
+            src.startsWith("blob:")
+          ) {
+            throw streamErr;
+          }
+          const blobSrc = await resolveProxiedBlobSrc(
+            song,
+            actual,
+            resolvedNetworkUrl,
+            {
+              audioCache: settings.audioCache,
+              maxCacheMB: settings.maxCacheMB,
+            },
+          );
+          if (!isPlayGenerationCurrent(gen)) return;
+          if (!blobSrc) throw streamErr;
+          applySongSource(blobSrc, song);
+          await audioPlayer.whenReady();
+          if (!isPlayGenerationCurrent(gen)) return;
+          if (reloadAt > 0) audioPlayer.seek(reloadAt);
+          await playWithTimeout();
+        }
         if (!isPlayGenerationCurrent(gen)) return;
 
         lastMediaPlaying = true;

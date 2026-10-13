@@ -11,10 +11,10 @@ import type { SourceScript, SourceRegistry, LxRequestPayload } from "@/types/sou
 import { isMobile } from "@/lib/os";
 import type { LyricInfo, MusicInfo, OnlineSource, Quality } from "@/types/music";
 
-/** Parallel musicUrl probes per wave — 6 on mobile to balance speed and IPC load, 12 on desktop. */
-const MUSIC_URL_WAVE = isMobile() ? 6 : 12;
+/** Parallel musicUrl probes per wave — 8 on mobile so all top verified sources race in Wave 1, 12 on desktop. */
+const MUSIC_URL_WAVE = isMobile() ? 8 : 12;
 /** Per-source musicUrl attempt timeout (scripts without their own timeout can hang). */
-const MUSIC_URL_ATTEMPT_MS = 5_000;
+const MUSIC_URL_ATTEMPT_MS = 3_500;
 /** Successful play URLs are reusable briefly (CDN links expire; keep TTL short). */
 const musicUrlCache = createAsyncCache<string>(4 * 60_000, 80);
 const picCache = createAsyncCache<string | null>(30 * 60_000, 80);
@@ -143,37 +143,17 @@ export class SourceRunner {
 
   // Enabled+loaded sources in UI list order (used for lyric/pic failover and
   // as the musicUrl race participant set).
-  //
-  // A script's `sources` map is its own statement of which platforms it serves,
-  // so a song must not be handed to a script that does not claim its platform.
-  // Such a script cannot resolve the id it was given and some fall back to
-  // looking the track up BY NAME on their own service — which answers with a
-  // different recording of the same title. The user hears another artist while
-  // the player bar still shows the song they picked.
-  //
-  // Scripts declaring no `sources` at all are kept: they have made no statement
-  // either way, so there is nothing to contradict.
-  //
-  // There is deliberately NO "fall back to everything" when nothing matches.
-  // That fallback re-admitted precisely the scripts this filter exists to
-  // exclude, so a song whose platform no script serves played a different
-  // recording instead of reporting that nothing can serve it. Search is built
-  // into the app for every platform, so browsing a platform you have no script
-  // for is an ordinary situation and it must fail honestly.
-  //
-  // The action filter is applied on top and never falls back: a script that
-  // claims a platform but omits an action from its list has made a specific
-  // statement about that platform, so it is respected instead of overridden.
   private getOrderedIds(
     action?: "musicUrl" | "lyric" | "pic",
     platform?: string,
+    quality?: Quality,
   ): string[] {
     const scripts = this.registry
       .getScripts()
       .filter((s) => s.enabled && this.sessions.has(s.id));
     if (!action || !platform) return scripts.map((s) => s.id);
 
-    return scripts
+    const matched = scripts
       .filter(
         (s) =>
           !s.sources ||
@@ -183,8 +163,19 @@ export class SourceRunner {
       .filter((s) => {
         const actions = s.sources?.[platform]?.actions;
         return !actions?.length || actions.includes(action);
-      })
-      .map((s) => s.id);
+      });
+
+    if (action === "musicUrl" && quality) {
+      const withQuality = matched.filter((s) => {
+        const qs = s.sources?.[platform]?.qualitys;
+        return !qs?.length || qs.includes(quality);
+      });
+      if (withQuality.length > 0) {
+        return withQuality.map((s) => s.id);
+      }
+    }
+
+    return matched.map((s) => s.id);
   }
 
   /** Enabled, loaded source ids in list order — changes when the user edits sources. */
@@ -194,11 +185,6 @@ export class SourceRunner {
 
   /**
    * Platforms the enabled, loaded scripts declare support for.
-   *
-   * Needed when a track carries no platform of its own — a Last.fm loved track
-   * is an artist and a title and nothing else — so there is no `source` to
-   * dispatch on. Searching a platform no script serves would only spend a
-   * request to learn it cannot be played.
    */
   servedPlatforms(): OnlineSource[] {
     const out = new Set<OnlineSource>();
@@ -251,14 +237,7 @@ export class SourceRunner {
         return;
       }
 
-      // A URL whose host served real audio before is worth a short wait over one
-      // we know nothing about. Without this the race settles on whichever source
-      // answers first, which on a device where the imported scripts are stale is
-      // always the broken one — the reachable fallback is still in flight.
-      //
-      // The wait is bounded two ways: the grace timer, and the wave itself, which
-      // still resolves with the merely-plausible URL once every source is done.
-      const GRACE_MS = 1_500;
+      const GRACE_MS = 80;
       let fallbackUrl = "";
       let graceTimer: number | undefined;
 
@@ -359,12 +338,9 @@ export class SourceRunner {
   }
 
   async getMusicUrl(payload: LxRequestPayload): Promise<string> {
-    const ids = this.getOrderedIds("musicUrl", payload.source);
+    const quality = (payload.type ?? "128k") as Quality;
+    const ids = this.getOrderedIds("musicUrl", payload.source, quality);
     if (!ids.length) {
-      // Distinguish "nothing is enabled" from "nothing serves this platform".
-      // Search is built in for every platform, so browsing one you have no
-      // script for is ordinary; reporting "no enabled sources" would send the
-      // user looking for a problem that is not there.
       const anyEnabled = this.registry
         .getScripts()
         .some((s) => s.enabled && this.sessions.has(s.id));
@@ -377,7 +353,6 @@ export class SourceRunner {
       );
     }
 
-    const quality = (payload.type ?? "128k") as Quality;
     const key = this.musicUrlKey(payload);
 
     return musicUrlCache(key, async () => {
@@ -397,12 +372,8 @@ export class SourceRunner {
   }
 
   // Resolve a playback URL starting at `preferred`, stepping down the quality
-  // ladder until a source returns a usable URL. Returns the quality that
-  // actually worked so callers can show / notify when it was downgraded.
-  //
-  // NetEase (`wy`): race the built-in public URL API in parallel with imported
-  // sources on the first quality step so a slow/broken script list can't leave
-  // the player stuck on loading for tens of seconds.
+  // ladder with a 900ms hedged fallback so slow/unavailable high-bitrate tiers
+  // (e.g. 320k/FLAC) never stall playback start when a fast lower tier is ready.
   async getMusicUrlAdaptive(
     song: MusicInfo,
     preferred: Quality,
@@ -414,7 +385,6 @@ export class SourceRunner {
     if (!candidates.length) {
       throw new Error("no higher quality to try");
     }
-    let lastErr: unknown;
 
     const tryBuiltin = async (quality: Quality): Promise<string> => {
       return withTimeout(
@@ -430,8 +400,10 @@ export class SourceRunner {
       );
     };
 
-    for (let i = 0; i < candidates.length; i++) {
-      const quality = candidates[i];
+    const tryQuality = async (
+      quality: Quality,
+      idx: number,
+    ): Promise<{ url: string; quality: Quality }> => {
       const fromSources = this.getMusicUrl({
         source: song.source,
         action: "musicUrl",
@@ -440,45 +412,85 @@ export class SourceRunner {
       });
 
       if (song.source === "wy") {
-        // First quality: race builtin vs sources. Later qualities: sources first,
-        // then builtin (avoids hammering the official API on every step).
-        if (i === 0) {
-          try {
-            return await raceFirst([
-              fromSources.then((url) => ({ url, quality })),
-              tryBuiltin(quality).then((url) => ({ url, quality })),
-            ]);
-          } catch (err) {
-            lastErr = err;
-            continue;
-          }
+        if (idx === 0) {
+          return raceFirst([
+            fromSources.then((url) => ({ url, quality })),
+            tryBuiltin(quality).then((url) => ({ url, quality })),
+          ]);
         }
         try {
           const url = await fromSources;
           return { url, quality };
-        } catch (err) {
-          lastErr = err;
-          try {
-            const url = await tryBuiltin(quality);
-            return { url, quality };
-          } catch (e2) {
-            lastErr = e2;
-          }
+        } catch {
+          const url = await tryBuiltin(quality);
+          return { url, quality };
         }
-        continue;
       }
 
-      try {
-        const url = await fromSources;
-        return { url, quality };
-      } catch (err) {
-        lastErr = err;
-      }
+      const url = await fromSources;
+      return { url, quality };
+    };
+
+    if (candidates.length === 1) {
+      return tryQuality(candidates[0], 0);
     }
 
-    throw lastErr instanceof Error
-      ? lastErr
-      : new Error(t("sources.err.noEnabled"));
+    // Staggered hedge: start candidate 0 immediately; start candidate i+1 either
+    // when candidate i fails OR after HEDGE_MS (900ms), whichever comes first.
+    const HEDGE_MS = 900;
+    return new Promise<{ url: string; quality: Quality }>((resolve, reject) => {
+      let settled = false;
+      let pending = candidates.length;
+      let nextIdx = 0;
+      let lastErr: unknown;
+      const timers: ReturnType<typeof setTimeout>[] = [];
+
+      const clearAllTimers = () => {
+        for (const tId of timers) clearTimeout(tId);
+        timers.length = 0;
+      };
+
+      const launchNext = () => {
+        if (settled || nextIdx >= candidates.length) return;
+        const idx = nextIdx++;
+        const q = candidates[idx];
+
+        if (nextIdx < candidates.length) {
+          const tId = setTimeout(() => {
+            launchNext();
+          }, HEDGE_MS);
+          timers.push(tId);
+        }
+
+        void tryQuality(q, idx).then(
+          (res) => {
+            if (settled) return;
+            settled = true;
+            clearAllTimers();
+            resolve(res);
+          },
+          (err) => {
+            if (settled) return;
+            lastErr = err;
+            pending -= 1;
+            if (pending === 0) {
+              settled = true;
+              clearAllTimers();
+              reject(
+                lastErr instanceof Error
+                  ? lastErr
+                  : new Error(t("sources.err.noEnabled")),
+              );
+              return;
+            }
+            // Immediately trigger the next quality tier without waiting for HEDGE_MS
+            launchNext();
+          },
+        );
+      };
+
+      launchNext();
+    });
   }
 
   async getLyric(payload: LxRequestPayload): Promise<LyricInfo | null> {

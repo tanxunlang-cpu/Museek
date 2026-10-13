@@ -119,31 +119,12 @@ async function fetchContentLength(url: string): Promise<number | null> {
   let sawConnectionFailure = false
 
   try {
-    const head = await httpFetch(url, {
-      method: "HEAD",
-      headers: cdn,
-      signal: timeoutSignal(3000),
-    })
-    if (head.status === 404 || head.status === 410) return REJECT
-    if (head.ok) {
-      if (isRejectableContentType(head.headers.get("content-type"))) return REJECT
-      const rawCl = head.headers.get("content-length")
-      if (rawCl === "0") return REJECT
-      const len = parseInt(rawCl || "", 10)
-      if (len > 0) return len
-    }
-  } catch (err) {
-    if (isConnectionLevelError(err)) sawConnectionFailure = true
-    /* otherwise fall through: many origins answer GET but not HEAD */
-  }
-
-  try {
-    // Small Range probe: sniff magic bytes when the CDN honours Range (206).
-    // Never arrayBuffer() a full-song 200 — that would download the track during race.
+    // Single Range probe (saves a full sequential HEAD round-trip):
+    // returns status, Content-Type, total size via Content-Range, and first 64 magic bytes at once.
     const ranged = await httpFetch(url, {
       method: "GET",
       headers: { ...cdn, Range: "bytes=0-63" },
-      signal: timeoutSignal(3000),
+      signal: timeoutSignal(2000),
     })
     if (ranged.status >= 400 && ranged.status !== 416) return REJECT
     const ct = ranged.headers.get("content-type")
@@ -160,7 +141,10 @@ async function fetchContentLength(url: string): Promise<number | null> {
           if (prefix.length >= 4 && looksLikeNonAudioBytes(prefix)) return REJECT
         }
       }
-      if (total > 0) return total
+      if (total > 0) {
+        markHostLive(url)
+        return total
+      }
     }
     const len = parseInt(ranged.headers.get("content-length") || "", 10)
     // Without Content-Range, a large Content-Length is the whole file — don't read it.
@@ -171,6 +155,7 @@ async function fetchContentLength(url: string): Promise<number | null> {
         return REJECT
       }
     }
+    if (ranged.ok) markHostLive(url)
     if (len > 1) return len
   } catch (err) {
     if (isConnectionLevelError(err)) sawConnectionFailure = true
@@ -178,9 +163,6 @@ async function fetchContentLength(url: string): Promise<number | null> {
   }
 
   if (sawConnectionFailure) {
-    // Both the HEAD and the ranged GET failed before reaching an origin, so the
-    // host — not this particular path — is the problem. Remember it and fail
-    // closed so the source race and the quality ladder move on.
     markHostDead(url)
     return DEAD
   }

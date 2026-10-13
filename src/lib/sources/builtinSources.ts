@@ -11,6 +11,34 @@ const rawSourceModules = import.meta.glob<string>(
   },
 );
 
+const DEFAULT_BUILTIN_SOURCES: SourceScript["sources"] = {
+  wy: {
+    type: "music",
+    actions: ["musicUrl"],
+    qualitys: ["128k", "320k", "flac"],
+  },
+  kw: {
+    type: "music",
+    actions: ["musicUrl"],
+    qualitys: ["128k", "320k", "flac"],
+  },
+  kg: {
+    type: "music",
+    actions: ["musicUrl"],
+    qualitys: ["128k", "320k", "flac"],
+  },
+  tx: {
+    type: "music",
+    actions: ["musicUrl"],
+    qualitys: ["128k", "320k", "flac"],
+  },
+  mg: {
+    type: "music",
+    actions: ["musicUrl"],
+    qualitys: ["128k", "320k", "flac"],
+  },
+};
+
 export function getBuiltinSourceScripts(): SourceScript[] {
   const scripts: SourceScript[] = [];
 
@@ -18,39 +46,6 @@ export function getBuiltinSourceScripts(): SourceScript[] {
     if (!rawScript || typeof rawScript !== "string") continue;
     const filename = path.split("/").pop() ?? "source.js";
     const meta = parseScriptMeta(rawScript);
-    // Verified functional sources from network probe testing
-    const filenameLower = filename.toLowerCase();
-    const isBroken =
-      filenameLower.includes("独家音源") ||
-      filenameLower.includes("稳定版音源") ||
-      filenameLower.includes("统一音乐源") ||
-      filenameLower.includes("聚合api接口") ||
-      filenameLower.includes("hello world") ||
-      filenameLower.includes("𝖧౿ᥣᥣ𝗈") ||
-      filenameLower.includes("星海2.3.8") ||
-      filenameLower.includes("全豆要") ||
-      filenameLower.includes("音乐下载器") ||
-      filenameLower.includes("念心") ||
-      filenameLower.includes("忆音") ||
-      filenameLower.includes("hei music") ||
-      filenameLower.includes("幻音") ||
-      filenameLower.includes("hywmusic");
-
-    const isVerifiedWorking =
-      !isBroken &&
-      (filenameLower.includes("裤佬") ||
-        filenameLower.includes("stellarwave") ||
-        filenameLower.includes("墨澜音乐源v2.3") ||
-        filenameLower.includes("西瓜") ||
-        filenameLower.includes("gdstudio") ||
-        filenameLower.includes("墨澜聚合") ||
-        filenameLower.includes("k×h") ||
-        filenameLower.includes("玉宁熙") ||
-        filenameLower.includes("xinghai-music-sourcev2.3.11") ||
-        filenameLower.includes("溯音") ||
-        filenameLower.includes("非常刀") ||
-        filenameLower.includes("收集の聚合") ||
-        filenameLower.includes("星澜"));
 
     // Clean up stable ID based on filename
     const safeId =
@@ -66,8 +61,9 @@ export function getBuiltinSourceScripts(): SourceScript[] {
       author: meta.author || "内置音源",
       description: meta.description || `内置预设音源 (${filename})`,
       rawScript,
-      enabled: isVerifiedWorking,
+      enabled: true,
       url: `builtin:${filename}`,
+      sources: DEFAULT_BUILTIN_SOURCES,
     });
   }
 
@@ -86,6 +82,13 @@ export function getBuiltinSourceScripts(): SourceScript[] {
     "非常刀",
     "收集の聚合",
     "星澜",
+    "幻音",
+    "hei music",
+    "忆音",
+    "念心",
+    "音乐下载器",
+    "全豆要",
+    "星海2.3.8",
   ];
   const getRank = (name: string, file: string) => {
     const s = (name + " " + file).toLowerCase();
@@ -95,10 +98,8 @@ export function getBuiltinSourceScripts(): SourceScript[] {
     return 999;
   };
 
-  // Sort so verified reliable sources appear first
+  // Sort so verified reliable sources appear first in Wave 1 & Wave 2
   scripts.sort((a, b) => {
-    if (a.enabled && !b.enabled) return -1;
-    if (!a.enabled && b.enabled) return 1;
     const rankA = getRank(a.name, a.url ?? "");
     const rankB = getRank(b.name, b.url ?? "");
     if (rankA !== rankB) return rankA - rankB;

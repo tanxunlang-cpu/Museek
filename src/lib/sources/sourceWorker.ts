@@ -166,11 +166,15 @@ function runScript(msg: Extract<HostToSourceWorker, { type: "init" }>): void {
     fn(lx)
     if (!initFinished) {
       setTimeout(() => {
-        if (!initFinished && requestHandler) {
+        if (!initFinished) {
           initFinished = true
+          if (!requestHandler) {
+            requestHandler = () =>
+              Promise.reject(new Error("source remote init endpoint unavailable"))
+          }
           post({ type: "inited", sources: undefined, hasHandler: true })
         }
-      }, 1500)
+      }, 1200)
     }
   } catch (err) {
     failInit(err)
@@ -222,7 +226,14 @@ self.onmessage = (ev: MessageEvent<HostToSourceWorker>) => {
 
 self.addEventListener("unhandledrejection", (ev: PromiseRejectionEvent) => {
   ev.preventDefault()
-  if (!initFinished) failInit(ev.reason)
+  if (!initFinished) {
+    initFinished = true
+    if (!requestHandler) {
+      requestHandler = () =>
+        Promise.reject(new Error(errorMessage(ev.reason)))
+    }
+    post({ type: "inited", sources: undefined, hasHandler: true })
+  }
 })
 
 installNetworkStubs()

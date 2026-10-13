@@ -174,7 +174,7 @@ export const useSourceStore = create<SourceState>((set, get) => ({
       loadSourceProbeResults(),
     ]);
     const builtinScripts = getBuiltinSourceScripts();
-    const BUILTIN_MIGRATION_VER = "3.11.4-r1";
+    const BUILTIN_MIGRATION_VER = "3.11.4-r2";
     const migratedVer =
       typeof localStorage !== "undefined"
         ? localStorage.getItem("museek_builtin_sources_ver")
@@ -189,8 +189,7 @@ export const useSourceStore = create<SourceState>((set, get) => ({
       saveSourceScripts(scripts);
     } else if (migratedVer !== BUILTIN_MIGRATION_VER) {
       // Upgrade migration: preserve custom user-imported scripts at the top,
-      // and refresh all builtin sources to the verified 3.11.4 configuration
-      // (disabling false-positive 403/404 sources and enabling verified 206 stream sources).
+      // and refresh all 26 builtin sources to enabled=true in verified priority order.
       const userScripts = diskScripts.filter(
         (s) => !s.id.startsWith("builtin_") && !s.url?.startsWith("builtin:"),
       );
@@ -225,17 +224,35 @@ export const useSourceStore = create<SourceState>((set, get) => ({
     }
     set({ scripts, probeResults });
     sourceRunner.setScripts(scripts);
-    // Load enabled sources concurrently in parallel. Tolerate individual init failures.
+
+    // Load the first 8 enabled sources (Wave 1) immediately so playback is ready
+    // within < 300ms, then load the remaining enabled sources in background batches
+    // of 6 so spawning 26 workers does not spike mobile WebView CPU at startup.
     const enabledScripts = scripts.filter((s) => s.enabled);
-    await Promise.allSettled(
-      enabledScripts.map(async (script) => {
-        try {
-          const sources = await sourceRunner.loadScript(script);
-          if (sources) get().setScriptSources(script.id, sources);
-        } catch {
-          // skip sources that fail to load/init
+    const loadOne = async (script: SourceScript) => {
+      try {
+        const sources = await sourceRunner.loadScript(script);
+        if (sources && Object.keys(sources).length > 0) {
+          get().setScriptSources(script.id, sources);
         }
-      }),
-    );
+      } catch {
+        // skip sources that fail to load/init
+      }
+    };
+
+    const primaryWave = enabledScripts.slice(0, 8);
+    const remainingScripts = enabledScripts.slice(8);
+
+    await Promise.allSettled(primaryWave.map(loadOne));
+
+    if (remainingScripts.length > 0) {
+      void (async () => {
+        const BATCH_SIZE = 6;
+        for (let i = 0; i < remainingScripts.length; i += BATCH_SIZE) {
+          const batch = remainingScripts.slice(i, i + BATCH_SIZE);
+          await Promise.allSettled(batch.map(loadOne));
+        }
+      })();
+    }
   },
 }));

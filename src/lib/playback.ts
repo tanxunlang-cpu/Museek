@@ -313,11 +313,22 @@ function warmDiskCache(
   })()
 }
 
+function normalizeStreamUrl(url: string): string {
+  if (
+    /^http:\/\/(?:[a-zA-Z0-9-]+\.)*(?:126\.net|163\.com|netease|lazyaudio|kuwo\.cn|kugou\.com|kgimg|qq\.com|gtimg\.cn|tencentmusic|migu\.cn)/i.test(
+      url,
+    )
+  ) {
+    return url.replace(/^http:\/\//i, "https://")
+  }
+  return url
+}
+
 /**
- * Prefer on-disk audio cache; otherwise download audio bytes natively via Rust
- * httpFetch and create an in-memory Blob URL so Android WebView <audio> never
- * hits cleartext HTTP / mixed-content / hotlink Referer / redirect blocks.
- * Disk cache write happens asynchronously in the background.
+ * Prefer on-disk audio cache; otherwise return the normalized stream URL
+ * immediately (0ms blocking) so `<audio>` starts buffering and playing right away.
+ * Disk cache warming is delayed by 2.5s so it does not compete for bandwidth
+ * during initial playback startup.
  */
 export async function resolvePlayableSrc(
   song: MusicInfo,
@@ -332,45 +343,51 @@ export async function resolvePlayableSrc(
     if (cached) return cached
   }
 
-  // Upgrade HTTP to HTTPS for major music CDNs that support TLS
-  let streamUrl = url
-  if (
-    /^http:\/\/(?:[a-zA-Z0-9-]+\.)*(?:126\.net|163\.com|netease|lazyaudio|kuwo\.cn|kugou\.com|kgimg|qq\.com|gtimg\.cn|tencentmusic|migu\.cn)/i.test(
-      url,
-    )
-  ) {
-    streamUrl = url.replace(/^http:\/\//i, "https://")
+  const streamUrl = normalizeStreamUrl(url)
+
+  if (opts.audioCache) {
+    setTimeout(() => {
+      warmDiskCache(song, quality, streamUrl, opts.maxCacheMB)
+    }, 2_500)
   }
 
-  // Download audio bytes via Rust httpFetch (bypasses WebView CORS, Referer, mixed-content,
-  // and cleartext restrictions) and serve immediately as an in-memory Blob URL.
+  return streamUrl
+}
+
+/**
+ * Fallback when direct `<audio>` streaming fails (e.g., strict Referer hotlink
+ * protection, gzipped audio payload, or cleartext HTTP redirect): download via
+ * Rust `httpFetch` with CDN header strategies and serve as an in-memory Blob URL.
+ */
+export async function resolveProxiedBlobSrc(
+  song: MusicInfo,
+  quality: Quality,
+  url: string,
+  opts: { audioCache: boolean; maxCacheMB: number },
+): Promise<string | null> {
+  if (!isTauri) return null
+  const streamUrl = normalizeStreamUrl(url)
   const downloaded =
     (await downloadAudioBytes(url, CACHE_DOWNLOAD_MS)) ??
     (streamUrl !== url ? await downloadAudioBytes(streamUrl, CACHE_DOWNLOAD_MS) : null)
 
-  if (downloaded) {
-    const { ext, mime: fallbackMime } = mimeForQuality(quality)
-    const mime = sniffAudioMime(downloaded.bytes, downloaded.contentType, fallbackMime)
-    if (opts.audioCache) {
-      void putCachedAudio(
-        song.source,
-        song.meta.songId,
-        quality,
-        downloaded.bytes,
-        ext,
-        opts.maxCacheMB * 1024 * 1024,
-      ).catch(() => {})
-    }
-    return URL.createObjectURL(
-      new Blob([downloaded.bytes as BlobPart], { type: mime }),
-    )
-  }
+  if (!downloaded) return null
 
-  // Fallback for very large files that exceeded CACHE_DOWNLOAD_MS: stream directly & warm cache in background
+  const { ext, mime: fallbackMime } = mimeForQuality(quality)
+  const mime = sniffAudioMime(downloaded.bytes, downloaded.contentType, fallbackMime)
   if (opts.audioCache) {
-    warmDiskCache(song, quality, streamUrl, opts.maxCacheMB)
+    void putCachedAudio(
+      song.source,
+      song.meta.songId,
+      quality,
+      downloaded.bytes,
+      ext,
+      opts.maxCacheMB * 1024 * 1024,
+    ).catch(() => {})
   }
-  return streamUrl
+  return URL.createObjectURL(
+    new Blob([downloaded.bytes as BlobPart], { type: mime }),
+  )
 }
 
 /** Shared adaptive URL resolve for playback and downloads. */
